@@ -1,18 +1,27 @@
 const express = require('express');
 const router = express.Router();
-const auth = require('../middleware/auth');
+const { authenticateUser, authorizeRoles } = require('../middleware/auth');
 const Order = require('../models/Order');
 const User = require('../models/User');
 const MenuItem = require('../models/MenuItem');
 const Reservation = require('../models/Reservation');
 
-// Get admin dashboard statistics
-router.get('/stats', auth, async (req, res) => {
-  try {
-    if (req.user.role !== 'admin') {
-      return res.status(403).json({ message: 'Access denied' });
-    }
+// First ensure proper authorization middleware
+router.use(authenticateUser, authorizeRoles('admin'));
 
+// Fix the problematic route by providing a proper callback function
+router.get('/dashboard', async (req, res) => {
+  try {
+    // Add your dashboard logic here
+    res.json({ message: 'Admin dashboard access granted' });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Get admin dashboard statistics
+router.get('/stats', async (req, res) => {
+  try {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const thisMonth = new Date(today.getFullYear(), today.getMonth(), 1);
@@ -108,12 +117,8 @@ router.get('/stats', auth, async (req, res) => {
 });
 
 // Get revenue chart data
-router.get('/revenue-chart', auth, async (req, res) => {
+router.get('/revenue-chart', async (req, res) => {
   try {
-    if (req.user.role !== 'admin') {
-      return res.status(403).json({ message: 'Access denied' });
-    }
-
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
@@ -148,12 +153,8 @@ router.get('/revenue-chart', auth, async (req, res) => {
 });
 
 // Get filtered orders list
-router.get('/orders', auth, async (req, res) => {
+router.get('/orders', async (req, res) => {
   try {
-    if (req.user.role !== 'admin') {
-      return res.status(403).json({ message: 'Access denied' });
-    }
-
     const { filter, sort } = req.query;
     let query = {};
     let sortOption = {};
