@@ -1,0 +1,578 @@
+
+import React, { useState, useEffect } from "react";
+import Layout from "@/components/Layout";
+import SectionHeading from "@/components/SectionHeading";
+import { useCart } from "@/context/CartContext";
+import { useAuth } from "@/context/AuthContext";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { format } from "date-fns";
+import { 
+  CheckCircle, 
+  Clock, 
+  Truck, 
+  CircleDashed, 
+  CheckCircle2, 
+  Package, 
+  MapPin, 
+  Phone,
+  User,
+  LucideIcon 
+} from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
+
+const DeliveryTracking = () => {
+  const { getUserOrders, verifyDeliveryOtp, addOrderReview } = useCart();
+  const { user } = useAuth();
+  const [orders, setOrders] = useState([]);
+  const [selectedOrder, setSelectedOrder] = useState(null);
+  const [enteredOtp, setEnteredOtp] = useState("");
+  const [showOtpDialog, setShowOtpDialog] = useState(false);
+  
+  // Review states
+  const [showReviewDialog, setShowReviewDialog] = useState(false);
+  const [reviewOrder, setReviewOrder] = useState(null);
+  const [rating, setRating] = useState(5);
+  const [reviewText, setReviewText] = useState("");
+  const [tipAmount, setTipAmount] = useState("0");
+
+  useEffect(() => {
+    if (user?.email) {
+      const userOrders = getUserOrders(user.email);
+      // Only show recent and active orders for tracking
+      const activeOrders = userOrders.filter(
+        order => order.status !== "cancelled" && 
+                (order.status !== "completed" || 
+                 new Date(order.date).getTime() > Date.now() - 7 * 24 * 60 * 60 * 1000)
+      );
+      setOrders(activeOrders);
+      
+      if (activeOrders.length > 0) {
+        // Select the most recent order by default
+        const mostRecentOrder = activeOrders.reduce((latest, current) => {
+          return new Date(latest.date) > new Date(current.date) ? latest : current;
+        });
+        setSelectedOrder(mostRecentOrder);
+      }
+    }
+  }, [user, getUserOrders]);
+  
+  const formatDate = (dateString) => {
+    try {
+      return format(new Date(dateString), "PPP p");
+    } catch (e) {
+      return dateString;
+    }
+  };
+  
+  const formatPrice = (price) => {
+    return new Intl.NumberFormat('en-IN', {
+      style: 'currency',
+      currency: 'INR',
+      maximumFractionDigits: 0
+    }).format(price);
+  };
+  
+  const handleVerifyOtp = () => {
+    if (selectedOrder && enteredOtp) {
+      const success = verifyDeliveryOtp(selectedOrder.id, enteredOtp);
+      if (success) {
+        setShowOtpDialog(false);
+        setEnteredOtp("");
+        
+        // Show review dialog
+        setReviewOrder(selectedOrder);
+        setShowReviewDialog(true);
+      }
+    }
+  };
+  
+  const handleSubmitReview = () => {
+    if (reviewOrder) {
+      addOrderReview(reviewOrder.id, rating, reviewText, parseInt(tipAmount));
+      setShowReviewDialog(false);
+      setRating(5);
+      setReviewText("");
+      setTipAmount("0");
+      
+      // Update orders list
+      const userOrders = getUserOrders(user.email);
+      setOrders(userOrders);
+      setSelectedOrder(userOrders.find(o => o.id === reviewOrder.id));
+    }
+  };
+  
+  const DeliveryStatus = ({ status }) => {
+    // Define all the possible steps in the delivery process
+    const steps = [
+      { id: "pending", label: "Order Placed", icon: CircleDashed },
+      { id: "processing", label: "Preparing", icon: Package },
+      { id: "out_for_delivery", label: "Out for Delivery", icon: Truck },
+      { id: "completed", label: "Delivered", icon: CheckCircle2 }
+    ];
+    
+    // Find the current step index
+    const currentStepIndex = steps.findIndex(step => step.id === status);
+    if (currentStepIndex === -1) return null;
+    
+    return (
+      <div className="mt-8">
+        <div className="relative">
+          {/* Progress line */}
+          <div className="absolute top-5 left-5 right-5 h-0.5 bg-gray-200"></div>
+          <div 
+            className="absolute top-5 left-5 h-0.5 bg-green-500 transition-all duration-500 ease-in-out"
+            style={{ 
+              width: `${currentStepIndex / (steps.length - 1) * 100}%` 
+            }}  
+          ></div>
+          
+          {/* Step circles */}
+          <div className="flex justify-between relative z-10">
+            {steps.map((step, index) => {
+              const StepIcon = step.icon;
+              const isCompleted = index <= currentStepIndex;
+              const isActive = index === currentStepIndex;
+              
+              return (
+                <div key={step.id} className="flex flex-col items-center">
+                  <div className={`
+                    w-10 h-10 rounded-full flex items-center justify-center
+                    ${isCompleted 
+                      ? 'bg-green-500 text-white' 
+                      : 'bg-gray-200 text-gray-400'}
+                    ${isActive ? 'ring-4 ring-green-100' : ''}
+                  `}>
+                    <StepIcon size={20} />
+                  </div>
+                  <span className={`
+                    text-xs font-medium mt-2
+                    ${isCompleted ? 'text-green-600' : 'text-gray-500'}
+                  `}>
+                    {step.label}
+                  </span>
+                  {isActive && status === "out_for_delivery" && (
+                    <span className="text-xs text-green-600 animate-pulse mt-1">
+                      On the way
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+        
+        {/* Additional status details */}
+        <div className="mt-10 p-4 bg-gray-50 rounded-lg">
+          <h4 className="font-medium text-sm mb-3">Order Status Updates</h4>
+          <ul className="space-y-3">
+            <li className="flex items-start space-x-3">
+              <CheckCircle size={18} className="text-green-500 mt-0.5" />
+              <div>
+                <p className="text-sm font-medium">Order Received</p>
+                <p className="text-xs text-gray-500">Your order has been received by our team.</p>
+              </div>
+            </li>
+            
+            {currentStepIndex >= 1 && (
+              <li className="flex items-start space-x-3">
+                <CheckCircle size={18} className="text-green-500 mt-0.5" />
+                <div>
+                  <p className="text-sm font-medium">Food Preparation</p>
+                  <p className="text-xs text-gray-500">Our chefs are preparing your delicious meal.</p>
+                </div>
+              </li>
+            )}
+            
+            {currentStepIndex >= 2 && (
+              <li className="flex items-start space-x-3">
+                <CheckCircle size={18} className="text-green-500 mt-0.5" />
+                <div>
+                  <p className="text-sm font-medium">Out for Delivery</p>
+                  <p className="text-xs text-gray-500">Your food is on the way to your location.</p>
+                </div>
+              </li>
+            )}
+            
+            {currentStepIndex >= 3 && (
+              <li className="flex items-start space-x-3">
+                <CheckCircle size={18} className="text-green-500 mt-0.5" />
+                <div>
+                  <p className="text-sm font-medium">Delivered</p>
+                  <p className="text-xs text-gray-500">Your order has been delivered successfully.</p>
+                </div>
+              </li>
+            )}
+            
+            {status === "out_for_delivery" && (
+              <li className="flex items-start space-x-3 mt-4 border-t pt-4">
+                <div className="bg-blue-100 p-3 rounded-lg w-full">
+                  <p className="text-sm font-medium mb-2">Your OTP: <span className="font-bold">{selectedOrder.otp}</span></p>
+                  <p className="text-xs text-gray-700">Share this OTP with the delivery person to verify your order.</p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="mt-2"
+                    onClick={() => setShowOtpDialog(true)}
+                  >
+                    Confirm Delivery
+                  </Button>
+                </div>
+              </li>
+            )}
+          </ul>
+        </div>
+      </div>
+    );
+  };
+  
+  const LiveMap = ({ status }) => {
+    const isTracking = status === "out_for_delivery";
+    
+    return (
+      <div className={`relative rounded-lg overflow-hidden h-64 ${isTracking ? 'bg-gray-50' : 'bg-gray-100'}`}>
+        {isTracking ? (
+          <div className="absolute inset-0">
+            <div className="w-full h-full bg-gray-200 relative overflow-hidden">
+              <div className="absolute inset-0 flex flex-col items-center justify-center">
+                <div className="w-8 h-8 rounded-full bg-blue-500 animate-ping opacity-75"></div>
+                <div className="w-4 h-4 rounded-full bg-blue-500 absolute"></div>
+              </div>
+              <div className="absolute bottom-0 left-0 right-0 p-4 bg-white/80 backdrop-blur-sm">
+                <div className="flex items-center">
+                  <div className="flex-shrink-0 mr-3">
+                    <div className="w-10 h-10 bg-burgundy rounded-full flex items-center justify-center text-white">
+                      <User size={18} />
+                    </div>
+                  </div>
+                  <div className="flex-grow">
+                    <p className="text-sm font-medium">Delivery Partner</p>
+                    <p className="text-xs text-gray-500">
+                      Estimated arrival in 15-20 mins
+                    </p>
+                  </div>
+                  <Button variant="outline" size="sm" className="flex-shrink-0">
+                    <Phone size={14} className="mr-1" /> Call
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="absolute inset-0 flex flex-col items-center justify-center">
+            {status === "completed" ? (
+              <>
+                <CheckCircle size={32} className="text-green-500 mb-2" />
+                <p className="text-gray-600 text-sm">Delivery Completed</p>
+              </>
+            ) : (
+              <>
+                <Clock size={32} className="text-gray-400 mb-2" />
+                <p className="text-gray-600 text-sm">Tracking will be available once your order is out for delivery</p>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <Layout>
+      <div className="min-h-screen pt-24 pb-16">
+        <div className="container-custom">
+          <SectionHeading 
+            title="Track Your Order" 
+            subtitle="Follow your order in real-time" 
+          />
+          
+          {orders.length === 0 ? (
+            <div className="bg-white p-8 rounded-lg shadow text-center mt-8">
+              <h3 className="text-xl font-bold mb-4">No Active Orders</h3>
+              <p className="text-gray-600 mb-6">You don't have any active orders to track at the moment.</p>
+              <Button onClick={() => window.location.href = '/menu'}>
+                Browse Menu
+              </Button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mt-8">
+              {/* Order List */}
+              <div className="lg:col-span-1">
+                <div className="bg-white p-6 rounded-lg shadow-md">
+                  <h3 className="text-lg font-semibold mb-4">Your Orders</h3>
+                  
+                  <div className="space-y-4">
+                    {orders.map((order) => (
+                      <button
+                        key={order.id}
+                        className={`w-full text-left p-4 rounded-lg transition-all ${
+                          selectedOrder?.id === order.id 
+                            ? 'bg-burgundy/10 border-burgundy border' 
+                            : 'bg-gray-50 hover:bg-gray-100 border border-gray-100'
+                        }`}
+                        onClick={() => setSelectedOrder(order)}
+                      >
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <p className="font-medium text-sm">{order.id}</p>
+                            <p className="text-xs text-gray-500">{formatDate(order.date)}</p>
+                          </div>
+                          <Badge className={
+                            order.status === "completed" 
+                              ? "bg-green-100 text-green-800" 
+                              : order.status === "cancelled"
+                              ? "bg-red-100 text-red-800"
+                              : order.status === "processing"
+                              ? "bg-blue-100 text-blue-800"
+                              : order.status === "out_for_delivery"
+                              ? "bg-purple-100 text-purple-800"
+                              : "bg-yellow-100 text-yellow-800"
+                          }>
+                            {order.status === "out_for_delivery" ? "Out for Delivery" : order.status}
+                          </Badge>
+                        </div>
+                        <div className="mt-2">
+                          <p className="text-xs text-gray-600">
+                            {order.items.length} {order.items.length === 1 ? 'item' : 'items'} • {formatPrice(order.total)}
+                          </p>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              
+              {/* Order Details and Tracking */}
+              <div className="lg:col-span-2">
+                {selectedOrder && (
+                  <div className="space-y-6">
+                    {/* Order Details Card */}
+                    <div className="bg-white p-6 rounded-lg shadow-md">
+                      <div className="flex justify-between items-start mb-4">
+                        <div>
+                          <h3 className="text-lg font-semibold">{selectedOrder.id}</h3>
+                          <p className="text-sm text-gray-500">{formatDate(selectedOrder.date)}</p>
+                        </div>
+                        <Badge className={
+                          selectedOrder.status === "completed" 
+                            ? "bg-green-100 text-green-800" 
+                            : selectedOrder.status === "cancelled"
+                            ? "bg-red-100 text-red-800"
+                            : selectedOrder.status === "processing"
+                            ? "bg-blue-100 text-blue-800"
+                            : selectedOrder.status === "out_for_delivery"
+                            ? "bg-purple-100 text-purple-800"
+                            : "bg-yellow-100 text-yellow-800"
+                        }>
+                          {selectedOrder.status === "out_for_delivery" ? "Out for Delivery" : selectedOrder.status}
+                        </Badge>
+                      </div>
+                      
+                      <div className="border-t border-b py-4 grid grid-cols-2 gap-4">
+                        <div>
+                          <p className="text-xs text-gray-500">Delivery Address</p>
+                          <div className="flex items-start mt-1">
+                            <MapPin size={16} className="text-gray-400 mr-1 mt-0.5 flex-shrink-0" />
+                            <p className="text-sm">{selectedOrder.deliveryAddress}</p>
+                          </div>
+                        </div>
+                        <div>
+                          <p className="text-xs text-gray-500">Contact Number</p>
+                          <div className="flex items-center mt-1">
+                            <Phone size={16} className="text-gray-400 mr-1" />
+                            <p className="text-sm">{selectedOrder.phone}</p>
+                          </div>
+                        </div>
+                      </div>
+                      
+                      <div className="py-4">
+                        <p className="text-xs text-gray-500 mb-2">Order Summary</p>
+                        <ul className="space-y-2">
+                          {selectedOrder.items.map((item) => (
+                            <li key={item.id} className="flex justify-between text-sm">
+                              <span>{item.quantity} × {item.name}</span>
+                              <span className="font-medium">{formatPrice(item.price * item.quantity)}</span>
+                            </li>
+                          ))}
+                        </ul>
+                        <div className="mt-4 pt-4 border-t flex justify-between font-medium">
+                          <span>Total</span>
+                          <span className="text-burgundy">{formatPrice(selectedOrder.total)}</span>
+                        </div>
+                      </div>
+                      
+                      {selectedOrder.status === "completed" && selectedOrder.review && (
+                        <div className="mt-4 pt-4 border-t">
+                          <p className="text-xs text-gray-500 mb-2">Your Review</p>
+                          <div className="flex items-center mb-2">
+                            {[...Array(5)].map((_, i) => (
+                              <CheckCircle
+                                key={i}
+                                size={16}
+                                className={i < selectedOrder.review.rating ? "text-yellow-400 fill-yellow-400" : "text-gray-300"}
+                              />
+                            ))}
+                          </div>
+                          <p className="text-sm">{selectedOrder.review.comment}</p>
+                          {selectedOrder.review.tip > 0 && (
+                            <p className="text-sm mt-2 text-gray-600">
+                              Tip: {formatPrice(selectedOrder.review.tip)}
+                            </p>
+                          )}
+                        </div>
+                      )}
+                      
+                      {selectedOrder.status === "completed" && !selectedOrder.review && (
+                        <div className="mt-4 pt-4 border-t">
+                          <Button 
+                            variant="outline" 
+                            onClick={() => {
+                              setReviewOrder(selectedOrder);
+                              setShowReviewDialog(true);
+                            }}
+                          >
+                            Rate Your Experience
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                    
+                    {/* Live Tracking Map */}
+                    <div className="bg-white p-6 rounded-lg shadow-md">
+                      <h3 className="text-lg font-semibold mb-4">Live Tracking</h3>
+                      <LiveMap status={selectedOrder.status} />
+                    </div>
+                    
+                    {/* Delivery Status */}
+                    <div className="bg-white p-6 rounded-lg shadow-md">
+                      <h3 className="text-lg font-semibold mb-4">Delivery Status</h3>
+                      <DeliveryStatus status={selectedOrder.status} />
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+      
+      {/* OTP Verification Dialog */}
+      <Dialog open={showOtpDialog} onOpenChange={setShowOtpDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Verify Delivery</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 mt-2">
+            <p className="text-sm text-gray-600">Please provide the OTP to the delivery person to confirm receipt of your order.</p>
+            
+            <div className="space-y-2">
+              <label htmlFor="otp" className="text-sm font-medium">Your OTP</label>
+              <div className="relative">
+                <Input 
+                  id="otp"
+                  value={enteredOtp}
+                  onChange={(e) => setEnteredOtp(e.target.value)}
+                  placeholder="Enter the 4-digit OTP"
+                  maxLength={4}
+                  className="text-center text-lg tracking-widest"
+                />
+              </div>
+            </div>
+            
+            <div className="pt-4 space-y-2">
+              <Button 
+                onClick={handleVerifyOtp} 
+                className="w-full"
+              >
+                Verify & Complete Delivery
+              </Button>
+              <Button 
+                variant="outline" 
+                onClick={() => setShowOtpDialog(false)} 
+                className="w-full"
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+      
+      {/* Review Dialog */}
+      <Dialog open={showReviewDialog} onOpenChange={setShowReviewDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Rate Your Experience</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <p className="text-sm text-gray-600">How was your food and delivery experience?</p>
+            
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Rating</label>
+              <div className="flex items-center space-x-1">
+                {[1, 2, 3, 4, 5].map((star) => (
+                  <button
+                    key={star}
+                    type="button"
+                    onClick={() => setRating(star)}
+                    className="focus:outline-none"
+                  >
+                    <CheckCircle
+                      size={24}
+                      className={star <= rating ? "fill-yellow-400 text-yellow-400" : "text-gray-300"}
+                    />
+                  </button>
+                ))}
+              </div>
+            </div>
+            
+            <div className="space-y-2">
+              <label htmlFor="review" className="text-sm font-medium">Your Review</label>
+              <Textarea
+                id="review"
+                placeholder="Share your experience with the food and delivery..."
+                value={reviewText}
+                onChange={(e) => setReviewText(e.target.value)}
+                rows={3}
+              />
+            </div>
+            
+            <div className="space-y-2 pt-2 border-t">
+              <label htmlFor="tip" className="text-sm font-medium">Add a Tip for Delivery (Optional)</label>
+              <div className="grid grid-cols-4 gap-2">
+                {["0", "20", "50", "100"].map((amount) => (
+                  <button
+                    key={amount}
+                    type="button"
+                    onClick={() => setTipAmount(amount)}
+                    className={`py-2 border rounded-md focus:outline-none transition-colors ${
+                      tipAmount === amount 
+                        ? "border-burgundy bg-burgundy/10 text-burgundy" 
+                        : "border-gray-300 hover:border-gray-400"
+                    }`}
+                  >
+                    {amount === "0" ? "No Tip" : `₹${amount}`}
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs text-gray-500 mt-1">100% of your tip goes to the delivery person</p>
+            </div>
+            
+            <div className="flex justify-end gap-2 mt-4">
+              <Button variant="outline" onClick={() => setShowReviewDialog(false)}>
+                Skip
+              </Button>
+              <Button onClick={handleSubmitReview}>
+                Submit Review
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </Layout>
+  );
+};
+
+export default DeliveryTracking;
