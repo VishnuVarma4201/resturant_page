@@ -19,6 +19,8 @@ const reservationRoute = require("./routes/reservationRoutes");
 const paymentRoute = require("./routes/paymentRoutes");
 const deliveryBoyRoute = require("./routes/deliveryBoyRoutes");
 const adminRoute = require("./routes/adminRoutes");
+const menuRoutes = require('./routes/menuRoutes');
+const userRoutes = require('./routes/userRoutes');
 
 const app = express();
 
@@ -46,7 +48,7 @@ app.use(helmet({
 
 // Production CORS settings
 app.use(cors({
-  origin: process.env.CLIENT_URL || 'http://localhost:5173',
+  origin: ['http://localhost:8080', 'http://localhost:5173'],
   credentials: true
 }));
 
@@ -58,8 +60,8 @@ app.use(morgan('[:date[iso]] ":method :url" :status :response-time ms - :res[con
   stream: logger.stream,
   skip: (req, res) => res.statusCode < 400 // Only log errors in production
 }));
-app.use(express.json({ limit: '10kb' })); // Body parser with size limit
-app.use(express.urlencoded({ extended: true, limit: '10kb' }));
+app.use(express.json({ limit: '50mb' })); // Increased body parser limit
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Error handling middleware
 app.use((err, req, res, next) => {
@@ -80,6 +82,8 @@ app.use("/api/reservations", apiLimiter, reservationRoute);
 app.use("/api/payments", apiLimiter, paymentRoute);
 app.use("/api/delivery-boys", apiLimiter, deliveryBoyRoute);
 app.use("/api/admin", apiLimiter, adminRoute);
+app.use('/api/menu', menuRoutes);
+app.use('/api/users', apiLimiter, userRoutes);
 
 // Root endpoint
 app.get("/", (_, res) => res.send("🚀 Real-Time Restaurant Server is running"));

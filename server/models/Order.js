@@ -29,14 +29,47 @@ const OrderSchema = new mongoose.Schema({
     enum: ['cash', 'online'],
     required: true,
     default: 'cash'
-  },
-  deliveryAddress: {
+  },  deliveryAddress: {
     street: { type: String, required: true },
     city: { type: String, required: true },
     state: { type: String, required: true },
     zipCode: { type: String, required: true },
-    landmark: String
+    landmark: String,
+    location: {
+      type: {
+        type: String,
+        enum: ['Point'],
+        default: 'Point'
+      },
+      coordinates: {
+        type: [Number], // [longitude, latitude]
+        default: [0, 0]
+      }
+    }
   },
+  currentLocation: {
+    type: {
+      type: String,
+      enum: ['Point'],
+      default: 'Point'
+    },
+    coordinates: {
+      type: [Number], // [longitude, latitude]
+      default: [0, 0]
+    },
+    lastUpdated: { type: Date }
+  },
+  locationHistory: [{
+    coordinates: {
+      type: [Number], // [longitude, latitude]
+      required: true
+    },
+    timestamp: {
+      type: Date,
+      required: true,
+      default: Date.now
+    }
+  }],
   estimatedDeliveryTime: {
     start: { type: Date },
     end: { type: Date }  
@@ -52,5 +85,9 @@ const OrderSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now },
   deliveredAt: { type: Date }
 });
+
+// Add geospatial index for location queries
+OrderSchema.index({ 'deliveryAddress.location': '2dsphere' });
+OrderSchema.index({ 'currentLocation': '2dsphere' });
 
 module.exports = mongoose.model('Order', OrderSchema);

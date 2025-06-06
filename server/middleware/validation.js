@@ -17,7 +17,6 @@ const orderValidation = [
     body('items').isArray().notEmpty().withMessage('Items array is required'),
     body('items.*.menuItem').isMongoId().withMessage('Valid menu item ID is required'),
     body('items.*.quantity').isInt({ min: 1 }).withMessage('Quantity must be at least 1'),
-    body('deliveryAddress').isObject().notEmpty().withMessage('Delivery address is required'),
     body('deliveryAddress.street').notEmpty().withMessage('Street address is required'),
     body('deliveryAddress.city').notEmpty().withMessage('City is required'),
     body('deliveryAddress.state').notEmpty().withMessage('State is required'),

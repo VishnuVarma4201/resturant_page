@@ -1,4 +1,3 @@
-
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -23,6 +22,7 @@ import Admin from "./pages/Admin";
 import Profile from "./pages/Profile";
 import DeliveryTracking from "./pages/DeliveryTracking";
 import DeliveryDashboard from "./pages/DeliveryDashboard";
+import Register from "./pages/Register";
 
 const queryClient = new QueryClient();
 
@@ -50,7 +50,11 @@ const ProtectedRoute = ({ children, adminOnly = false, deliveryOnly = false, use
 };
 
 const AppRoutes = () => {
-  const { isAuthenticated, isAdmin, isDeliveryBoy } = useAuth();
+  const { isAuthenticated, isAdmin, isDeliveryBoy, loading } = useAuth();
+
+  if (loading) {
+    return <div>Loading...</div>;
+  }
   
   // Return different routes based on user type
   return (
@@ -58,7 +62,8 @@ const AppRoutes = () => {
       {/* Public Routes - accessible by anyone */}
       <Route path="/" element={<Index />} />
       <Route path="/login" element={<Login />} />
-      
+      <Route path="/register" element={!isAuthenticated ? <Register /> : <Navigate to="/" />} />
+
       {/* Protected Routes - need authentication */}
       <Route path="/profile" element={
         <ProtectedRoute>
@@ -165,24 +170,26 @@ const AppRoutes = () => {
   );
 };
 
-const App = () => (
-  <QueryClientProvider client={queryClient}>
-    <TooltipProvider>
+function App() {
+  return (
+    <QueryClientProvider client={queryClient}>
       <AuthProvider>
         <AdminProvider>
           <CartProvider>
             <ReservationProvider>
-              <BrowserRouter>
-                <Toaster />
-                <Sonner />
-                <AppRoutes />
-              </BrowserRouter>
+              <TooltipProvider>
+                <BrowserRouter>
+                  <Toaster />
+                  <Sonner />
+                  <AppRoutes />
+                </BrowserRouter>
+              </TooltipProvider>
             </ReservationProvider>
           </CartProvider>
         </AdminProvider>
       </AuthProvider>
-    </TooltipProvider>
-  </QueryClientProvider>
-);
+    </QueryClientProvider>
+  );
+}
 
 export default App;

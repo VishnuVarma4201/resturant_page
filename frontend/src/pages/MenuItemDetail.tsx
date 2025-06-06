@@ -14,11 +14,10 @@ const MenuItemDetail = () => {
   const { addToCart } = useCart();
   const { menuItems } = useAdmin();
   const [quantity, setQuantity] = useState(1);
-
-  // Find the item
+  // Find the item by either _id or legacy id
   const item = Object.values(menuItems)
     .flat()
-    .find((item) => item.id === Number(id));
+    .find((item) => item._id === id || item.id?.toString() === id);
 
   if (!item) {
     return (
@@ -34,11 +33,11 @@ const MenuItemDetail = () => {
       </Layout>
     );
   }
-
   const handleAddToCart = () => {
+    const itemId = item._id || item.id || Date.now(); // Fallback to timestamp if no id
     // First add the item without quantity
     addToCart({
-      id: item.id,
+      id: itemId,
       name: item.name,
       price: item.price,
       image: item.image,
@@ -47,15 +46,10 @@ const MenuItemDetail = () => {
     
     // Then update the quantity if needed (quantity > 1)
     if (quantity > 1) {
-      // We need to update the quantity separately since it's not part of the addToCart parameter type
-      const itemWithCorrectId = {
-        id: item.id,
-        quantity: quantity
-      };
       // Find the item and update its quantity
       for (let i = 1; i < quantity; i++) {
         addToCart({
-          id: item.id,
+          id: itemId,
           name: item.name,
           price: item.price,
           image: item.image,

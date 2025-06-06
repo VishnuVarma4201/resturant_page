@@ -102,8 +102,7 @@ const Profile = () => {
   };
 
   const handleUpdateReservation = () => {
-    if (editingReservation) {
-      updateReservationDetails(editingReservation.id, {
+    if (editingReservation) {      updateReservationDetails(editingReservation._id || editingReservation.id, {
         time: updatedTime,
         partySize: updatedPartySize
       });
@@ -506,8 +505,7 @@ const Profile = () => {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {reservations.map((reservation) => (
-                          <TableRow key={reservation.id}>
+                        {reservations.map((reservation) => (                          <TableRow key={reservation._id || reservation.id}>
                             <TableCell>{formatDate(reservation.date)}</TableCell>
                             <TableCell>{reservation.time}</TableCell>
                             <TableCell>{reservation.partySize} {parseInt(reservation.partySize) === 1 ? 'person' : 'people'}</TableCell>

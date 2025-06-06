@@ -1,56 +1,52 @@
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
-const DeliveryBoy = require("../models/DeliveryBoy");
 
 const authenticateUser = async (req, res, next) => {
   try {
-    // Check for Bearer token in Authorization header
-    const authHeader = req.headers["authorization"];
+    const authHeader = req.headers.authorization;
+
     if (!authHeader) {
-      return res.status(401).json({ message: "No token provided" });
+      return res.status(401).json({
+        success: false,
+        message: "Authorization header missing",
+      });
     }
 
-    // Extract token from Bearer format
-    const token = authHeader.split(" ")[1];
+    // Clean and validate token
+    const token = authHeader.replace("Bearer ", "").trim();
     if (!token) {
-      return res.status(401).json({ message: "No token provided" });
+
+      return res.status(401).json({
+        success: false,
+        message: "Token missing",
+      });
     }
 
-    // Verify token and extract user ID and role
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    if (!decoded.id) {
-      return res.status(401).json({ message: "Invalid token format" });
-    }
+    try {
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      const user = await User.findById(decoded.id).select("-password");
 
-    // Check if it's a delivery boy token
-    if (decoded.role === 'delivery') {
-      const deliveryBoy = await DeliveryBoy.findById(decoded.id).select('-password');
-      if (!deliveryBoy) {
-        return res.status(404).json({ message: "Delivery boy not found" });
+      if (!user) {
+        return res.status(401).json({
+          success: false,
+          message: "User not found",
+        });
       }
-      req.user = { ...deliveryBoy.toObject(), role: 'delivery' };
+      req.user = user;
       next();
-      return;
+    } catch (jwtError) {
+      console.error("JWT Error:", jwtError.message);
+      return res.status(401).json({
+        success: false,
+        message: "Invalid token",
+      });
     }
-
-    // Find regular user
-    const user = await User.findById(decoded.id).select('-password');
-    if (!user) {
-      return res.status(404).json({ message: "User not found" });
-    }
-
-    // Attach user to request object
-    req.user = user;
-    next();
-  } catch (err) {
-    console.error('Auth error:', err);
-    if (err.name === 'JsonWebTokenError') {
-      return res.status(401).json({ message: "Invalid token" });
-    }
-    if (err.name === 'TokenExpiredError') {
-      return res.status(401).json({ message: "Token expired" });
-    }
-    res.status(500).json({ message: "Authentication failed" });
+  } catch (error) {
+    console.error("Auth Error:", error.message);
+    return res.status(500).json({
+      success: false,
+      message: "Authentication failed",
+    });
   }
 };
 
@@ -65,5 +61,5 @@ const authorizeRoles = (...roles) => {
 
 module.exports = {
   authenticateUser,
-  authorizeRoles
+  authorizeRoles,
 };

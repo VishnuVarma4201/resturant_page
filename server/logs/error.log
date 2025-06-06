@@ -4,3 +4,6 @@ Uncaught Exception: listen EADDRINUSE: address already in use :::5000
 Uncaught Exception: listen EADDRINUSE: address already in use :::5000
 Uncaught Exception: listen EADDRINUSE: address already in use :::5000
 Uncaught Exception: listen EADDRINUSE: address already in use :::5000
+Clear Cache Error: Cannot read properties of null (reading 'keys')
+Clear Cache Error: Cannot read properties of null (reading 'keys')
+Clear Cache Error: Cannot read properties of null (reading 'keys')

@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { Menu, X, ShoppingCart, User, ShieldCheck, LogOut, Truck, Home } from "lucide-react";
@@ -156,13 +155,18 @@ const Navbar = () => {
               </Button>
             </>
           ) : (
-            location.pathname !== "/login" && (
-              <Link to="/login">
-                <Button variant="default" size="sm">
-                  Sign In
-                </Button>
+            <>
+              {location.pathname !== "/login" && (
+                <Link to="/login">
+                  <Button variant="default" size="sm">
+                    Sign In
+                  </Button>
+                </Link>
+              )}
+              <Link to="/register" className="btn-secondary">
+                Sign Up
               </Link>
-            )
+            </>
           )}
         </div>
 
@@ -218,10 +222,17 @@ const Navbar = () => {
             </>
           )}
           
-          {!isAuthenticated && location.pathname !== "/login" && (
-            <Link to="/login" onClick={closeMenu} className="py-2 hover:text-burgundy transition-colors">
-              Sign In
-            </Link>
+          {!isAuthenticated && (
+            <>
+              {location.pathname !== "/login" && (
+                <Link to="/login" onClick={closeMenu} className="py-2 hover:text-burgundy transition-colors">
+                  Sign In
+                </Link>
+              )}
+              <Link to="/register" onClick={closeMenu} className="py-2 hover:text-burgundy transition-colors">
+                Sign Up
+              </Link>
+            </>
           )}
         </div>
       </div>

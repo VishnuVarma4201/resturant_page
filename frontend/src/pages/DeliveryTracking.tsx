@@ -1,8 +1,7 @@
-
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import Layout from "@/components/Layout";
 import SectionHeading from "@/components/SectionHeading";
-import { useCart } from "@/context/CartContext";
+import { useCart, Order } from "@/context/CartContext";
 import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -19,45 +18,108 @@ import {
   User,
   LucideIcon 
 } from "lucide-react";
+import { connectSocket, disconnectSocket } from "../lib/socket";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
+import axios from "axios";
+import { toast } from "sonner";
+// Make sure the socket module exists at the correct path.
+// If '@/lib/socket' does not exist, update the path below to the actual location.
+// For example, if the file is at 'src/lib/socket.ts', use:
+import { socket } from '../lib/socket';
+// Or adjust the path as needed based on your project structure.
+import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
+import 'leaflet/dist/leaflet.css';
+import { Icon } from 'leaflet';
+
+// Custom marker icons
+const deliveryIcon = new Icon({
+  iconUrl: '/delivery-marker.svg',
+  iconSize: [40, 40],
+  iconAnchor: [20, 40],
+});
+
+const destinationIcon = new Icon({
+  iconUrl: '/destination-marker.svg',
+  iconSize: [40, 40],
+  iconAnchor: [20, 40],
+});
+
+interface Location {
+  coordinates: [number, number];
+  lastUpdated: Date;
+}
+
+interface LocationUpdate {
+  orderId: string;
+  location: Location;
+  status: string;
+  distanceRemaining?: number;
+  estimatedMinutesRemaining?: number;
+  estimatedArrival?: Date;
+}
 
 const DeliveryTracking = () => {
   const { getUserOrders, verifyDeliveryOtp, addOrderReview } = useCart();
-  const { user } = useAuth();
-  const [orders, setOrders] = useState([]);
-  const [selectedOrder, setSelectedOrder] = useState(null);
+  const { user } = useAuth();  const [orders, setOrders] = useState<Order[]>([]);
+  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [enteredOtp, setEnteredOtp] = useState("");
   const [showOtpDialog, setShowOtpDialog] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   
   // Review states
   const [showReviewDialog, setShowReviewDialog] = useState(false);
-  const [reviewOrder, setReviewOrder] = useState(null);
+  const [reviewOrder, setReviewOrder] = useState<Order | null>(null);
   const [rating, setRating] = useState(5);
   const [reviewText, setReviewText] = useState("");
   const [tipAmount, setTipAmount] = useState("0");
 
+  const [activeOrders, setActiveOrders] = useState<Order[]>([]);
   useEffect(() => {
-    if (user?.email) {
-      const userOrders = getUserOrders(user.email);
-      // Only show recent and active orders for tracking
-      const activeOrders = userOrders.filter(
-        order => order.status !== "cancelled" && 
-                (order.status !== "completed" || 
-                 new Date(order.date).getTime() > Date.now() - 7 * 24 * 60 * 60 * 1000)
-      );
-      setOrders(activeOrders);
-      
-      if (activeOrders.length > 0) {
-        // Select the most recent order by default
-        const mostRecentOrder = activeOrders.reduce((latest, current) => {
-          return new Date(latest.date) > new Date(current.date) ? latest : current;
-        });
-        setSelectedOrder(mostRecentOrder);
+    const fetchOrders = async () => {
+      if (user?.email) {
+        try {
+          const response = await axios.get('http://localhost:5000/api/orders/myorders', {
+            headers: {
+              Authorization: `Bearer ${localStorage.getItem('token')}`
+            }
+          });
+          
+          console.log('Orders from API:', response.data);
+          const orders = response.data;
+          setOrders(orders);
+          
+          const activeOrders = orders.filter(order => 
+            !['delivered', 'cancelled'].includes(order.status)
+          );
+          setActiveOrders(activeOrders);
+          
+          if (activeOrders.length > 0 && !selectedOrder) {
+            setSelectedOrder(activeOrders[0]);
+          }
+          
+          // If there's a selected order that's being delivered, connect socket
+          if (selectedOrder?.status === 'delivering') {
+            const userToken = localStorage.getItem('token');
+            connectSocket(userToken, 'user', selectedOrder.id);
+          }
+        } catch (error) {
+          console.error('Error fetching orders:', error);
+          toast.error('Failed to fetch orders');
+        }
       }
-    }
-  }, [user, getUserOrders]);
+    };
+
+    fetchOrders();
+    const interval = setInterval(fetchOrders, 30000); // Refresh every 30 seconds
+
+    return () => {
+      clearInterval(interval);
+      disconnectSocket();
+    };
+  }, [user, selectedOrder]);
   
   const formatDate = (dateString) => {
     try {
@@ -89,16 +151,16 @@ const DeliveryTracking = () => {
     }
   };
   
-  const handleSubmitReview = () => {
+  const handleSubmitReview = async () => {
     if (reviewOrder) {
-      addOrderReview(reviewOrder.id, rating, reviewText, parseInt(tipAmount));
+      await addOrderReview(reviewOrder.id, rating, reviewText, parseInt(tipAmount));
       setShowReviewDialog(false);
       setRating(5);
       setReviewText("");
       setTipAmount("0");
       
       // Update orders list
-      const userOrders = getUserOrders(user.email);
+      const userOrders = await getUserOrders(user.email);
       setOrders(userOrders);
       setSelectedOrder(userOrders.find(o => o.id === reviewOrder.id));
     }
@@ -107,10 +169,10 @@ const DeliveryTracking = () => {
   const DeliveryStatus = ({ status }) => {
     // Define all the possible steps in the delivery process
     const steps = [
-      { id: "pending", label: "Order Placed", icon: CircleDashed },
-      { id: "processing", label: "Preparing", icon: Package },
-      { id: "out_for_delivery", label: "Out for Delivery", icon: Truck },
-      { id: "completed", label: "Delivered", icon: CheckCircle2 }
+      { id: "placed", label: "Order Placed", icon: CircleDashed },
+      { id: "accepted", label: "Preparing", icon: Package },
+      { id: "delivering", label: "Out for Delivery", icon: Truck },
+      { id: "delivered", label: "Delivered", icon: CheckCircle2 }
     ];
     
     // Find the current step index
@@ -152,8 +214,7 @@ const DeliveryTracking = () => {
                     ${isCompleted ? 'text-green-600' : 'text-gray-500'}
                   `}>
                     {step.label}
-                  </span>
-                  {isActive && status === "out_for_delivery" && (
+                  </span>                  {isActive && status === "delivering" && (
                     <span className="text-xs text-green-600 animate-pulse mt-1">
                       On the way
                     </span>
@@ -205,8 +266,7 @@ const DeliveryTracking = () => {
                 </div>
               </li>
             )}
-            
-            {status === "out_for_delivery" && (
+              {status === "delivering" && (
               <li className="flex items-start space-x-3 mt-4 border-t pt-4">
                 <div className="bg-blue-100 p-3 rounded-lg w-full">
                   <p className="text-sm font-medium mb-2">Your OTP: <span className="font-bold">{selectedOrder.otp}</span></p>
@@ -228,41 +288,51 @@ const DeliveryTracking = () => {
     );
   };
   
-  const LiveMap = ({ status }) => {
-    const isTracking = status === "out_for_delivery";
-    
-    return (
-      <div className={`relative rounded-lg overflow-hidden h-64 ${isTracking ? 'bg-gray-50' : 'bg-gray-100'}`}>
-        {isTracking ? (
-          <div className="absolute inset-0">
-            <div className="w-full h-full bg-gray-200 relative overflow-hidden">
-              <div className="absolute inset-0 flex flex-col items-center justify-center">
-                <div className="w-8 h-8 rounded-full bg-blue-500 animate-ping opacity-75"></div>
-                <div className="w-4 h-4 rounded-full bg-blue-500 absolute"></div>
-              </div>
-              <div className="absolute bottom-0 left-0 right-0 p-4 bg-white/80 backdrop-blur-sm">
-                <div className="flex items-center">
-                  <div className="flex-shrink-0 mr-3">
-                    <div className="w-10 h-10 bg-burgundy rounded-full flex items-center justify-center text-white">
-                      <User size={18} />
-                    </div>
-                  </div>
-                  <div className="flex-grow">
-                    <p className="text-sm font-medium">Delivery Partner</p>
-                    <p className="text-xs text-gray-500">
-                      Estimated arrival in 15-20 mins
-                    </p>
-                  </div>
-                  <Button variant="outline" size="sm" className="flex-shrink-0">
-                    <Phone size={14} className="mr-1" /> Call
-                  </Button>
-                </div>
-              </div>
-            </div>
-          </div>
-        ) : (
-          <div className="absolute inset-0 flex flex-col items-center justify-center">
-            {status === "completed" ? (
+  const LiveMap = ({ orderId, status, deliveryAddress }) => {
+    const [currentLocation, setCurrentLocation] = useState<Location | null>(null);
+    const [estimatedInfo, setEstimatedInfo] = useState<{
+      distance?: number;
+      duration?: number;
+      arrival?: Date;
+    }>({});
+    const mapRef = useRef(null);
+
+    useEffect(() => {
+      if (!orderId || status !== 'delivering') return;
+
+      // Listen for location updates
+      socket.on('delivery_location_updated', (data: LocationUpdate) => {
+        if (data.orderId === orderId) {
+          setCurrentLocation(data.location);
+          setEstimatedInfo({
+            distance: data.distanceRemaining,
+            duration: data.estimatedMinutesRemaining,
+            arrival: data.estimatedArrival ? new Date(data.estimatedArrival) : undefined
+          });
+        }
+      });
+
+      return () => {
+        socket.off('delivery_location_updated');
+      };
+    }, [orderId, status]);
+
+    // Center map on current location
+    const MapUpdater = () => {
+      const map = useMap();
+      
+      useEffect(() => {
+        if (currentLocation) {
+          const [lng, lat] = currentLocation.coordinates;
+          map.setView([lat, lng], 15);
+        }
+      }, [currentLocation]);
+
+      return null;
+    };    if (!currentLocation || status !== "delivering") {
+      return (
+        <div className="relative rounded-lg overflow-hidden h-64 bg-gray-50">
+          <div className="absolute inset-0 flex flex-col items-center justify-center">            {status === "delivered" ? (
               <>
                 <CheckCircle size={32} className="text-green-500 mb-2" />
                 <p className="text-gray-600 text-sm">Delivery Completed</p>
@@ -272,6 +342,70 @@ const DeliveryTracking = () => {
                 <Clock size={32} className="text-gray-400 mb-2" />
                 <p className="text-gray-600 text-sm">Tracking will be available once your order is out for delivery</p>
               </>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="space-y-4">
+        <div className="h-64 relative rounded-lg overflow-hidden">
+          <MapContainer
+            center={[currentLocation.coordinates[1], currentLocation.coordinates[0]]}
+            zoom={15}
+            className="h-full w-full"
+            ref={mapRef}
+          >
+            <TileLayer
+              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            />
+            {currentLocation && (
+              <Marker 
+                position={[currentLocation.coordinates[1], currentLocation.coordinates[0]]} 
+                icon={deliveryIcon}
+              >
+                <Popup>
+                  Delivery Partner's Location
+                  <br />
+                  Last updated: {new Date(currentLocation.lastUpdated).toLocaleTimeString()}
+                </Popup>
+              </Marker>
+            )}
+            {deliveryAddress?.location?.coordinates && (
+              <Marker 
+                position={deliveryAddress.location.coordinates.reverse()} 
+                icon={destinationIcon}
+              >
+                <Popup>
+                  Delivery Address
+                  <br />
+                  {deliveryAddress.street}
+                </Popup>
+              </Marker>
+            )}
+            <MapUpdater />
+          </MapContainer>
+        </div>
+        
+        {estimatedInfo.distance && (
+          <div className="bg-blue-50 p-4 rounded-lg space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-medium">Distance Remaining</span>
+              <span className="text-sm">{estimatedInfo.distance.toFixed(1)} km</span>
+            </div>
+            {estimatedInfo.duration && (
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium">Estimated Time</span>
+                <span className="text-sm">{estimatedInfo.duration} mins</span>
+              </div>
+            )}
+            {estimatedInfo.arrival && (
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium">Expected Arrival</span>
+                <span className="text-sm">{estimatedInfo.arrival.toLocaleTimeString()}</span>
+              </div>
             )}
           </div>
         )}
@@ -287,8 +421,20 @@ const DeliveryTracking = () => {
             title="Track Your Order" 
             subtitle="Follow your order in real-time" 
           />
-          
-          {orders.length === 0 ? (
+            {loading ? (
+            <div className="bg-white p-8 rounded-lg shadow text-center mt-8">
+              <div className="animate-spin w-6 h-6 border-2 border-burgundy border-t-transparent rounded-full mx-auto mb-4"></div>
+              <p className="text-gray-600">Loading your orders...</p>
+            </div>
+          ) : error ? (
+            <div className="bg-white p-8 rounded-lg shadow text-center mt-8">
+              <h3 className="text-xl font-bold mb-4 text-red-600">Error Loading Orders</h3>
+              <p className="text-gray-600 mb-6">{error}</p>
+              <Button onClick={() => window.location.reload()}>
+                Try Again
+              </Button>
+            </div>
+          ) : orders.length === 0 ? (
             <div className="bg-white p-8 rounded-lg shadow text-center mt-8">
               <h3 className="text-xl font-bold mb-4">No Active Orders</h3>
               <p className="text-gray-600 mb-6">You don't have any active orders to track at the moment.</p>
@@ -318,19 +464,18 @@ const DeliveryTracking = () => {
                           <div>
                             <p className="font-medium text-sm">{order.id}</p>
                             <p className="text-xs text-gray-500">{formatDate(order.date)}</p>
-                          </div>
-                          <Badge className={
-                            order.status === "completed" 
+                          </div>                          <Badge className={
+                            order.status === "delivered" 
                               ? "bg-green-100 text-green-800" 
                               : order.status === "cancelled"
                               ? "bg-red-100 text-red-800"
-                              : order.status === "processing"
+                              : order.status === "accepted"
                               ? "bg-blue-100 text-blue-800"
-                              : order.status === "out_for_delivery"
+                              : order.status === "delivering"
                               ? "bg-purple-100 text-purple-800"
                               : "bg-yellow-100 text-yellow-800"
                           }>
-                            {order.status === "out_for_delivery" ? "Out for Delivery" : order.status}
+                            {order.status === "delivering" ? "Out for Delivery" : order.status}
                           </Badge>
                         </div>
                         <div className="mt-2">
@@ -354,19 +499,18 @@ const DeliveryTracking = () => {
                         <div>
                           <h3 className="text-lg font-semibold">{selectedOrder.id}</h3>
                           <p className="text-sm text-gray-500">{formatDate(selectedOrder.date)}</p>
-                        </div>
-                        <Badge className={
-                          selectedOrder.status === "completed" 
+                        </div>                        <Badge className={
+                          selectedOrder.status === "delivered" 
                             ? "bg-green-100 text-green-800" 
                             : selectedOrder.status === "cancelled"
                             ? "bg-red-100 text-red-800"
-                            : selectedOrder.status === "processing"
+                            : selectedOrder.status === "accepted"
                             ? "bg-blue-100 text-blue-800"
-                            : selectedOrder.status === "out_for_delivery"
+                            : selectedOrder.status === "delivering"
                             ? "bg-purple-100 text-purple-800"
                             : "bg-yellow-100 text-yellow-800"
                         }>
-                          {selectedOrder.status === "out_for_delivery" ? "Out for Delivery" : selectedOrder.status}
+                          {selectedOrder.status === "delivering" ? "Out for Delivery" : selectedOrder.status}
                         </Badge>
                       </div>
                       
@@ -375,14 +519,14 @@ const DeliveryTracking = () => {
                           <p className="text-xs text-gray-500">Delivery Address</p>
                           <div className="flex items-start mt-1">
                             <MapPin size={16} className="text-gray-400 mr-1 mt-0.5 flex-shrink-0" />
-                            <p className="text-sm">{selectedOrder.deliveryAddress}</p>
+                            <p className="text-sm">{`${selectedOrder.deliveryAddress.street}, ${selectedOrder.deliveryAddress.city}, ${selectedOrder.deliveryAddress.state} ${selectedOrder.deliveryAddress.zipCode}`}</p>
                           </div>
                         </div>
                         <div>
                           <p className="text-xs text-gray-500">Contact Number</p>
                           <div className="flex items-center mt-1">
                             <Phone size={16} className="text-gray-400 mr-1" />
-                            <p className="text-sm">{selectedOrder.phone}</p>
+                            <p className="text-sm">{selectedOrder.deliveryPhone}</p>
                           </div>
                         </div>
                       </div>
@@ -403,7 +547,7 @@ const DeliveryTracking = () => {
                         </div>
                       </div>
                       
-                      {selectedOrder.status === "completed" && selectedOrder.review && (
+                      {selectedOrder.status === "delivered" && selectedOrder.review && (
                         <div className="mt-4 pt-4 border-t">
                           <p className="text-xs text-gray-500 mb-2">Your Review</p>
                           <div className="flex items-center mb-2">
@@ -424,7 +568,7 @@ const DeliveryTracking = () => {
                         </div>
                       )}
                       
-                      {selectedOrder.status === "completed" && !selectedOrder.review && (
+                      {selectedOrder.status === "delivered" && !selectedOrder.review && (
                         <div className="mt-4 pt-4 border-t">
                           <Button 
                             variant="outline" 
@@ -442,7 +586,7 @@ const DeliveryTracking = () => {
                     {/* Live Tracking Map */}
                     <div className="bg-white p-6 rounded-lg shadow-md">
                       <h3 className="text-lg font-semibold mb-4">Live Tracking</h3>
-                      <LiveMap status={selectedOrder.status} />
+                      <LiveMap orderId={selectedOrder.id} status={selectedOrder.status} deliveryAddress={selectedOrder.deliveryAddress} />
                     </div>
                     
                     {/* Delivery Status */}

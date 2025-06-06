@@ -1,172 +1,183 @@
-
-import React, { createContext, useContext, useState, useEffect } from "react";
-import { toast } from "sonner";
-
-interface User {
-  email: string;
-  name: string;
-  isAdmin: boolean;
-  isDeliveryBoy: boolean;
-}
+import { createContext, useContext, useState, useEffect } from 'react';
+import axios, { AxiosError } from 'axios';
+import { User, UserResponse, transformUser } from '@/types/user';
 
 interface AuthContextType {
-  user: User | null;
-  login: (email: string, password: string) => boolean;
+  user: UserResponse | null;
+  users: UserResponse[];
+  login: (email: string, password: string) => Promise<void>;
+  register: (userData: RegisterData) => Promise<void>;
   logout: () => void;
-  register: (name: string, email: string, password: string) => boolean;
   isAuthenticated: boolean;
   isAdmin: boolean;
   isDeliveryBoy: boolean;
-  users: { name: string; email: string; password: string; isAdmin: boolean; isDeliveryBoy: boolean }[];
-  updateUserProfile: (name: string) => void;
+  loading: boolean;
+  fetchDeliveryBoys: () => Promise<UserResponse[]>;
 }
 
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
+interface RegisterData {
+  name: string;
+  email: string;
+  password: string;
+  phone?: string;
+  address?: string;
+}
 
-export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [users, setUsers] = useState<{ name: string; email: string; password: string; isAdmin: boolean; isDeliveryBoy: boolean }[]>(() => {
-    const savedUsers = localStorage.getItem("users");
-    const initialUsers = savedUsers ? JSON.parse(savedUsers) : [];
-    
-    // Ensure admin exists in the users list
-    if (!initialUsers.some(user => user.email === "admin@example.com")) {
-      initialUsers.push({
-        name: "Admin",
-        email: "admin@example.com",
-        password: "admin123",
-        isAdmin: true,
-        isDeliveryBoy: false
-      });
-    }
-    
-    // Add a delivery boy account if it doesn't exist
-    if (!initialUsers.some(user => user.email === "delivery@example.com")) {
-      initialUsers.push({
-        name: "Delivery Boy",
-        email: "delivery@example.com",
-        password: "delivery123",
-        isAdmin: false,
-        isDeliveryBoy: true
-      });
-    }
-    
-    // Ensure regular user exists
-    if (!initialUsers.some(user => user.email === "user@example.com")) {
-      initialUsers.push({
-        name: "User",
-        email: "user@example.com",
-        password: "password",
-        isAdmin: false,
-        isDeliveryBoy: false
-      });
-    }
-    
-    return initialUsers;
-  });
+interface AuthResponse {
+  success: boolean;
+  token: string;
+  user: {
+    _id: string;
+    name: string;
+    email: string;
+    role: string;
+  };
+}
+
+// Setup axios instance with updated config
+const api = axios.create({
+  baseURL: 'http://localhost:5000/api',
+  headers: { 'Content-Type': 'application/json' }
+});
+
+// Configure axios
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem('token');
   
-  const [user, setUser] = useState<User | null>(() => {
-    const savedUser = localStorage.getItem("user");
-    return savedUser ? JSON.parse(savedUser) : null;
-  });
+  if (token && token !== 'null' && token !== 'undefined') {
+    const cleanToken = token.replace('Bearer ', '').trim();
+    config.headers.Authorization = `Bearer ${cleanToken}`;
+  }
+  return config;
+});
 
-  useEffect(() => {
-    if (user) {
-      localStorage.setItem("user", JSON.stringify(user));
-    } else {
-      localStorage.removeItem("user");
+api.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    if (error.response?.status === 401) {
+      localStorage.removeItem('token');
+      window.location.href = '/login';
     }
-  }, [user]);
+    return Promise.reject(error);
+  }
+);
 
-  useEffect(() => {
-    localStorage.setItem("users", JSON.stringify(users));
-  }, [users]);
+const AuthContext = createContext<AuthContextType | null>(null);
 
-  const login = (email: string, password: string): boolean => {
-    // Find user in users array
-    const foundUser = users.find(u => u.email === email && u.password === password);
-    
-    if (foundUser) {
-      setUser({
-        email: foundUser.email,
-        name: foundUser.name,
-        isAdmin: foundUser.isAdmin,
-        isDeliveryBoy: foundUser.isDeliveryBoy
+export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
+  const [user, setUser] = useState<UserResponse | null>(null);
+  const [users, setUsers] = useState<UserResponse[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const fetchDeliveryBoys = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) return [];      const { data } = await api.get('/users/delivery-boys', {
+        headers: { Authorization: `Bearer ${token}` }
       });
-      
-      toast.success(`Welcome back, ${foundUser.name}!`);
-      return true;
+
+      if (data.success) {
+        const deliveryBoys = data.users.map(transformUser);
+        setUsers(prev => [...prev.filter(u => u.role !== 'delivery'), ...deliveryBoys]);
+        return deliveryBoys;
+      }
+      return [];
+    } catch (error) {
+      console.error('Error fetching delivery boys:', error);
+      return [];
     }
-    
-    toast.error("Invalid credentials");
-    return false;
   };
 
-  const register = (name: string, email: string, password: string): boolean => {
-    // Check if email already exists
-    if (users.some(u => u.email === email)) {
-      toast.error("This email is already registered");
-      return false;
+  const validateToken = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      
+      if (!token || token === 'null' || token === 'undefined') {
+        localStorage.removeItem('token');
+        setLoading(false);
+        return;
+      }      const { data } = await api.get('/auth/validate', {
+        headers: { Authorization: `Bearer ${token.replace('Bearer ', '').trim()}` }
+      });
+
+      if (data.user) {
+        setUser(transformUser(data.user));
+      }
+    } catch (error) {
+      console.error('Token validation error:', error);
+      localStorage.removeItem('token');
+      setUser(null);
+    } finally {
+      setLoading(false);
     }
-    
-    // Check if this is a delivery boy email (ends with @delivery.com)
-    const isDeliveryBoyEmail = email.toLowerCase().endsWith('@delivery.com');
-    
-    // Add new user
-    const newUser = {
-      name,
-      email,
-      password,
-      isAdmin: false,
-      isDeliveryBoy: isDeliveryBoyEmail
-    };
-    
-    setUsers(prev => [...prev, newUser]);
-    
-    // Auto login after registration
-    setUser({
-      email: newUser.email,
-      name: newUser.name,
-      isAdmin: newUser.isAdmin,
-      isDeliveryBoy: newUser.isDeliveryBoy
-    });
-    
-    toast.success("Registration successful!");
-    return true;
+  };
+
+  useEffect(() => {
+    validateToken();
+    if (user?.role === 'admin') {
+      fetchDeliveryBoys();
+    }
+  }, [user?.role]);
+
+  const login = async (email: string, password: string) => {
+    try {
+      const { data } = await api.post<AuthResponse>('/auth/login', { 
+        email, 
+        password 
+      });
+
+      if (!data.success || !data.token) {
+        throw new Error('Invalid login response');
+      }
+
+      // Store clean token
+      const cleanToken = data.token.replace('Bearer ', '').trim();
+      localStorage.setItem('token', cleanToken);
+      setUser(transformUser(data.user));
+
+    } catch (error) {
+      localStorage.removeItem('token');
+      setUser(null);
+      throw error;
+    }
+  };
+
+  const register = async (userData: RegisterData) => {
+    try {
+      const response = await api.post('/auth/register', userData);
+      if (response.data.token) {
+        localStorage.setItem('token', response.data.token);
+        api.defaults.headers.common['Authorization'] = `Bearer ${response.data.token}`;
+        setUser(response.data.user);
+        return response.data;
+      }
+      throw new Error('Invalid response from server');
+    } catch (error) {
+      console.error('Registration error:', error);
+      if (error.response?.data?.message) {
+        throw error.response.data.message;
+      }
+      throw 'Registration failed. Please try again.';
+    }
   };
 
   const logout = () => {
+    localStorage.removeItem('token');
     setUser(null);
-    toast.info("Logged out successfully");
-  };
-  
-  const updateUserProfile = (name: string) => {
-    if (!user) return;
-    
-    // Update the current user's name
-    setUser({
-      ...user,
-      name
-    });
-    
-    // Also update in the users array for persistence
-    setUsers(prevUsers => 
-      prevUsers.map(u => 
-        u.email === user.email ? { ...u, name } : u
-      )
-    );
   };
 
   return (
     <AuthContext.Provider value={{
       user,
-      login,
-      logout,
-      register,
-      isAuthenticated: !!user,
-      isAdmin: user?.isAdmin || false,
-      isDeliveryBoy: user?.isDeliveryBoy || false,
       users,
-      updateUserProfile
+      login,
+      register,
+      logout,
+      loading,
+      isAuthenticated: !!user,
+      isAdmin: user?.role === 'admin',
+      isDeliveryBoy: user?.role === 'delivery',
+      fetchDeliveryBoys
     }}>
       {children}
     </AuthContext.Provider>
@@ -175,8 +186,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
 export const useAuth = () => {
   const context = useContext(AuthContext);
-  if (context === undefined) {
-    throw new Error("useAuth must be used within an AuthProvider");
+  if (!context) {
+    throw new Error('useAuth must be used within an AuthProvider');
   }
   return context;
 };

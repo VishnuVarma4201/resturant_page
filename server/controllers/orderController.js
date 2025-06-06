@@ -9,6 +9,111 @@ const sendSMS = require('../utils/sendSMS');
 const socketManager = require('../utils/socketManager');
 
 const orderController = {
+  updateDeliveryLocation: async (req, res) => {
+    try {
+      const { orderId } = req.params;
+      const { longitude, latitude } = req.body;
+
+      // Validate coordinates
+      if (!longitude || !latitude) {
+        return res.status(400).json({ 
+          message: 'Both longitude and latitude are required',
+          required: ['longitude', 'latitude']
+        });
+      }
+
+      // Verify the request is from a delivery person
+      if (req.user.role !== 'delivery') {
+        return res.status(403).json({ 
+          message: 'Only delivery personnel can update location',
+          yourRole: req.user.role
+        });
+      }
+
+      const order = await Order.findById(orderId);
+
+      if (!order) {
+        return res.status(404).json({ message: 'Order not found' });
+      }
+
+      if (!order.assignedTo || order.assignedTo.toString() !== req.user._id.toString()) {
+        return res.status(403).json({ message: 'Not authorized to update this order\'s location' });
+      }
+
+      if (order.status !== 'delivering' && order.status !== 'assigned') {
+        return res.status(400).json({ 
+          message: 'Can only update location for orders in delivering or assigned status',
+          currentStatus: order.status
+        });
+      }
+
+      const now = new Date();
+
+      // Update current location
+      order.currentLocation = {
+        type: 'Point',
+        coordinates: [longitude, latitude],
+        lastUpdated: now
+      };
+
+      // Add to location history if it doesn't exist
+      if (!order.locationHistory) {
+        order.locationHistory = [];
+      }
+
+      // Add to location history
+      order.locationHistory.push({
+        coordinates: [longitude, latitude],
+        timestamp: now
+      });
+
+      await order.save();
+
+      // Update delivery boy's location
+      const deliveryBoy = await DeliveryBoy.findById(req.user._id);
+      if (deliveryBoy) {
+        await deliveryBoy.updateLocation(longitude, latitude);
+      }
+
+      // Calculate estimated time and distance remaining if possible
+      let estimatedInfo = {};
+      if (order.deliveryAddress?.location?.coordinates) {
+        const [destinationLng, destinationLat] = order.deliveryAddress.location.coordinates;
+        // Use delivery boy's method to calculate distance
+        const distanceRemaining = deliveryBoy ? deliveryBoy.getDistanceFrom(destinationLng, destinationLat) : null;
+        
+        // Rough estimate: Assume average speed of 20 km/h in city traffic
+        const estimatedMinutesRemaining = distanceRemaining ? Math.ceil(distanceRemaining * 3) : null; // 3 minutes per km
+        
+        if (distanceRemaining !== null) {
+          estimatedInfo = {
+            distanceRemaining: Math.round(distanceRemaining * 100) / 100, // Round to 2 decimal places
+            estimatedMinutesRemaining,
+            estimatedArrival: new Date(now.getTime() + estimatedMinutesRemaining * 60000)
+          };
+        }
+      }
+
+      // Notify user about updated location
+      socketManager.notifyUser(order.user._id, 'delivery_location_updated', {
+        orderId: order._id,
+        location: order.currentLocation,
+        status: order.status,
+        ...estimatedInfo,
+        lastUpdate: now
+      });
+
+      res.json({ 
+        message: 'Delivery location updated',
+        location: order.currentLocation,
+        ...estimatedInfo
+      });
+
+    } catch (err) {
+      console.error('Error updating delivery location:', err);
+      res.status(500).json({ message: 'Failed to update delivery location' });
+    }
+  },
   placeOrder: async (req, res) => {
     try {
       const { items, deliveryAddress, deliveryNotes } = req.body;
@@ -97,6 +202,8 @@ const orderController = {
           end: estimatedEnd
         }
       });
+
+      console.log(order);
 
       await order.save();
 
@@ -283,14 +390,21 @@ const orderController = {
           assigned: order.assignedTo._id,
           requesting: req.user._id
         });
-      }
-
-      // Handle status transitions
+      }      // Handle status transitions
       if (status === 'delivering') {
         if (order.status !== 'assigned') {
           return res.status(400).json({ message: 'Order must be assigned before starting delivery' });
         }
         order.status = 'delivering';
+
+        // Update order's current location if provided
+        if (location && location.longitude && location.latitude) {
+          order.currentLocation = {
+            type: 'Point',
+            coordinates: [location.longitude, location.latitude],
+            lastUpdated: new Date()
+          };
+        }
 
         // Notify user about delivery start
         socketManager.notifyUser(order.user._id, 'delivery_started', {
@@ -299,10 +413,9 @@ const orderController = {
             name: req.user.name,
             phone: req.user.phone
           },
-          location: location
+          location: order.currentLocation
         });
-      }
-      else if (status === 'delivered') {
+      } else if (status === 'delivered') {
         // Verify payment status
         if (order.paymentStatus !== 'completed') {
           // For cash payments, mark as completed upon delivery
@@ -314,9 +427,7 @@ const orderController = {
               paymentId: order.paymentId
             });
           }
-        }
-
-        // Verify OTP - check both otp and opt fields for better UX
+        }        // Verify OTP - check both otp and opt fields for better UX
         const providedOTP = otp || req.body.opt; // Handle both spellings
         if (!providedOTP || providedOTP !== order.otp) {
           return res.status(400).json({ 
@@ -360,16 +471,13 @@ const orderController = {
           await deliveryBoy.updateStats();
           await deliveryBoy.save();
         }
-      }
-      else {
+      } else {
         return res.status(400).json({ 
           message: 'Invalid status value',
           validValues: ['delivering', 'delivered'],
           currentStatus: order.status
         });
-      }
-
-      await order.save();
+      }      await order.save();
 
       // Notify all parties about status update
       socketManager.handleOrderStatusUpdate({
@@ -381,9 +489,7 @@ const orderController = {
           deliveryBoyId: req.user._id
         },
         location: location
-      });
-
-      res.json({ 
+      });      res.json({ 
         message: 'Order status updated successfully',
         order
       });

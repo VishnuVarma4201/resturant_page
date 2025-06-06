@@ -4,6 +4,7 @@ const jwt = require("jsonwebtoken");
 const { sendOTP } = require("../utils/sendOtp");
 const sendSMS = require("../utils/sendSMS");
 const User = require("../models/User");
+const { authenticateUser } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -62,38 +63,38 @@ router.post("/register",
 router.post("/login", async (req, res) => {
   try {
     const { email, password } = req.body;
-    
-    // Find user
-    const user = await User.findOne({ email: email.toLowerCase() });
-    if (!user) {
-      return res.status(401).json({ message: "Invalid credentials" });
+    const user = await User.findOne({ email }).select('+password');
+
+    if (!user || !await user.comparePassword(password)) {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid credentials'
+      });
     }
 
-    // Verify password
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) {
-      return res.status(401).json({ message: "Invalid credentials" });
-    }
-
-    // Generate token with user ID
+    // Generate clean token
     const token = jwt.sign(
-      { id: user._id },
+      { id: user._id.toString() },
       process.env.JWT_SECRET,
-      { expiresIn: "1h" }
+      { expiresIn: '24h' }
     );
 
     res.json({
-      token,
+      success: true,
+      token: token.trim(),
       user: {
-        id: user._id,
+        _id: user._id,
         name: user.name,
         email: user.email,
         role: user.role
       }
     });
-  } catch (err) {
-    console.error('Login error:', err);
-    res.status(500).json({ message: "Login failed" });
+  } catch (error) {
+    console.error('Login error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Login failed'
+    });
   }
 });
 
@@ -135,6 +136,19 @@ router.post("/send-sms-otp", async (req, res) => {
       }
     });
   }
+});
+
+// Validate token endpoint
+router.get("/validate", authenticateUser, (req, res) => {
+  res.json({
+    success: true,
+    user: {
+      id: req.user._id,
+      name: req.user.name,
+      email: req.user.email,
+      role: req.user.role
+    }
+  });
 });
 
 module.exports = router;

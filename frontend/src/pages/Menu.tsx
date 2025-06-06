@@ -9,42 +9,55 @@ import { ShoppingCart } from "lucide-react";
 import { Link } from "react-router-dom";
 import LoadingAnimation from "@/components/LoadingAnimation";
 import { useCart } from "@/context/CartContext";
-import { useAdmin } from "@/context/AdminContext";
+import { useQuery } from "@tanstack/react-query";
+import { getMenuItems, categories, MenuItem, filterByCategory } from "@/services/menuService";
 
 const Menu = () => {
-  const [isLoading, setIsLoading] = React.useState(true);
+  const [activeCategory, setActiveCategory] = React.useState("all");
   const { addToCart } = useCart();
-  const { menuItems, isInitialized } = useAdmin();
 
-  React.useEffect(() => {
-    // Simulate loading delay
-    const timer = setTimeout(() => {
-      setIsLoading(false);
-    }, 1500);
-    return () => clearTimeout(timer);
-  }, []);
+  const { data: allMenuItems, isLoading, error } = useQuery<MenuItem[]>({
+    queryKey: ["menu"],
+    queryFn: getMenuItems,
+  });
 
-  const handleAddToCart = (item) => {
+  const menuItems = React.useMemo(
+    () => filterByCategory(allMenuItems || [], activeCategory),
+    [allMenuItems, activeCategory]
+  );
+  const handleAddToCart = (item: MenuItem) => {
     addToCart({
-      id: item.id,
+      id: item._id || item.id || Date.now(), // Fallback to timestamp if no id
       name: item.name,
       price: item.price,
       image: item.image,
-      category: item.category // Add the missing category property
+      category: item.category,
     });
   };
 
   // Format price in Indian Rupees
-  const formatPrice = (price) => {
-    return new Intl.NumberFormat('en-IN', {
-      style: 'currency',
-      currency: 'INR',
-      maximumFractionDigits: 0
+  const formatPrice = (price: number) => {
+    return new Intl.NumberFormat("en-IN", {
+      style: "currency",
+      currency: "INR",
+      maximumFractionDigits: 0,
     }).format(price);
   };
 
   if (isLoading) {
     return <LoadingAnimation text="Preparing your menu..." />;
+  }
+
+  if (error) {
+    return (
+      <Layout>
+        <div className="min-h-screen pt-24 pb-16">
+          <div className="container-custom text-center">
+            <p className="text-red-500">Failed to load menu items. Please try again later.</p>
+          </div>
+        </div>
+      </Layout>
+    );
   }
 
   return (
@@ -55,33 +68,58 @@ const Menu = () => {
             title="Our Menu"
             subtitle="Discover culinary excellence"
           />
-          
-          <motion.div 
+
+          <motion.div
             className="mt-12"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ duration: 0.5 }}
           >
-            <Tabs defaultValue="starters" className="w-full">
+            <Tabs defaultValue="all" onValueChange={setActiveCategory}>
               <TabsList className="flex justify-center flex-wrap mb-8">
-                <TabsTrigger value="starters">Starters</TabsTrigger>
-                <TabsTrigger value="mainCourse">Main Course</TabsTrigger>
-                <TabsTrigger value="desserts">Desserts</TabsTrigger>
-                <TabsTrigger value="beverages">Beverages</TabsTrigger>
+                <TabsTrigger value="all">All</TabsTrigger>
+                {Object.entries(categories).map(([key, label]) => (
+                  <TabsTrigger key={key} value={key}>
+                    {label}
+                  </TabsTrigger>
+                ))}
               </TabsList>
-              
-              {Object.entries(menuItems).map(([category, items]) => (
+
+              <TabsContent value="all" className="mt-0">
+                {menuItems?.length === 0 ? (
+                  <div className="text-center py-8">
+                    <p className="text-gray-500">
+                      No items available in this category.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {menuItems?.map((item) => (
+                      <MenuCard
+                        key={item.id}
+                        item={item}
+                        formatPrice={formatPrice}
+                        addToCart={handleAddToCart}
+                      />
+                    ))}
+                  </div>
+                )}
+              </TabsContent>
+
+              {Object.keys(categories).map((category) => (
                 <TabsContent key={category} value={category} className="mt-0">
-                  {items.length === 0 ? (
+                  {menuItems?.length === 0 ? (
                     <div className="text-center py-8">
-                      <p className="text-gray-500">No items available in this category.</p>
+                      <p className="text-gray-500">
+                        No items available in this category.
+                      </p>
                     </div>
                   ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                      {items.map((item) => (
-                        <MenuCard 
-                          key={item.id} 
-                          item={item} 
+                      {menuItems?.map((item) => (
+                        <MenuCard
+                          key={item.id}
+                          item={item}
                           formatPrice={formatPrice}
                           addToCart={handleAddToCart}
                         />
@@ -98,7 +136,13 @@ const Menu = () => {
   );
 };
 
-const MenuCard = ({ item, formatPrice, addToCart }) => {
+interface MenuCardProps {
+  item: MenuItem;
+  formatPrice: (price: number) => string;
+  addToCart: (item: MenuItem) => void;
+}
+
+const MenuCard: React.FC<MenuCardProps> = ({ item, formatPrice, addToCart }) => {
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -117,20 +161,23 @@ const MenuCard = ({ item, formatPrice, addToCart }) => {
           <div className="flex justify-between items-start">
             <div>
               <CardTitle>{item.name}</CardTitle>
-              <CardDescription className="mt-2">{item.description}</CardDescription>
+              <CardDescription className="mt-2">
+                {item.description}
+              </CardDescription>
             </div>
-            <div className="text-burgundy font-bold">{formatPrice(item.price)}</div>
+            <div className="text-burgundy font-bold">
+              {formatPrice(item.price)}
+            </div>
           </div>
         </CardHeader>
         <CardContent className="mt-auto">
           <div className="flex flex-col sm:flex-row gap-2">
             <Link to={`/menu/${item.id}`} className="w-full">
-              <Button variant="outline" className="w-full">View Details</Button>
+              <Button variant="outline" className="w-full">
+                View Details
+              </Button>
             </Link>
-            <Button 
-              className="w-full" 
-              onClick={() => addToCart(item)}
-            >
+            <Button className="w-full" onClick={() => addToCart(item)}>
               <ShoppingCart className="mr-2 h-4 w-4" /> Add to Cart
             </Button>
           </div>

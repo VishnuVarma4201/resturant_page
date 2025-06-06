@@ -13,11 +13,11 @@ const apiLimiter = rateLimit({
 // Production rate limiting for authentication
 const authLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 5, // Very strict for auth endpoints
+    max: process.env.NODE_ENV === 'production' ? 5 : 100, // More lenient in development
     message: { error: 'Too many login attempts. Please try again later.' },
     standardHeaders: true,
     legacyHeaders: false,
-    skipSuccessfulRequests: false // Count all attempts
+    skipSuccessfulRequests: true // Skip successful requests in development
 });
 
 // Production rate limiting for chatbot

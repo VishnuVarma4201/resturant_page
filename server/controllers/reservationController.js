@@ -2,10 +2,32 @@ const reservationModel = require("../models/Reservation");
 // ✅ GET all reservations (admin)
 const getAllReservations = async (req, res) => {
   try {
-    const reservations = await reservationModel.find().populate("user", "name email");
-    res.json(reservations);
+    const reservations = await reservationModel
+      .find()
+      .populate("user", "name email")
+      .sort({ createdAt: -1 });
+
+    res.json({
+      success: true,
+      reservations: reservations.map(reservation => ({
+        id: reservation._id,
+        name: reservation.name || reservation.user?.name,
+        email: reservation.email || reservation.user?.email,
+        phone: reservation.phone,
+        date: reservation.date,
+        time: reservation.time,
+        partySize: reservation.partySize,
+        status: reservation.status,
+        tableNumber: reservation.tableNumber,
+        specialRequests: reservation.specialRequests
+      }))
+    });
   } catch (err) {
-    res.status(500).json({ message: "Failed to fetch reservations" });
+    console.error('Get all reservations error:', err);
+    res.status(500).json({ 
+      success: false, 
+      message: "Failed to fetch reservations" 
+    });
   }
 };
 
@@ -21,17 +43,31 @@ const getUserReservations = async (req, res) => {
 
 // ✅ POST create new reservation (user)
 const createReservation = async (req, res) => {
-  const { date, timeSlot } = req.body;
+  const { date, time, partySize, specialRequests, name, email, phone } = req.body;
   try {
-    const reservation = new Reservation({
+    const reservation = new reservationModel({
       user: req.user.id,
       date,
-      timeSlot,
+      time,
+      partySize,
+      specialRequests,
+      name,
+      email,
+      phone,
+      status: 'pending'
     });
+    
     await reservation.save();
-    res.status(201).json(reservation);
+    res.status(201).json({
+      success: true,
+      reservation: await reservation.populate('user', 'name email')
+    });
   } catch (err) {
-    res.status(500).json({ message: "Failed to create reservation" });
+    console.error('Create reservation error:', err);
+    res.status(500).json({ 
+      success: false, 
+      message: "Failed to create reservation" 
+    });
   }
 };
 
@@ -41,14 +77,36 @@ const updateReservationStatus = async (req, res) => {
   const { status, tableNumber } = req.body;
 
   try {
-    const updated = await Reservation.findByIdAndUpdate(
+    if (!['pending', 'approved', 'rejected'].includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid reservation status"
+      });
+    }
+
+    const updated = await reservationModel.findByIdAndUpdate(
       id,
-      { status, tableNumber },
+      { 
+        status, 
+        ...(tableNumber && { tableNumber }),
+        updatedAt: new Date()
+      },
       { new: true }
-    );
-    if (!updated) return res.status(404).json({ message: "Reservation not found" });
-    res.json(updated);
+    ).populate('user', 'name email');
+
+    if (!updated) {
+      return res.status(404).json({
+        success: false,
+        message: "Reservation not found"
+      });
+    }
+
+    res.json({
+      success: true,
+      reservation: updated
+    });
   } catch (err) {
+    console.error('Update reservation status error:', err);
     res.status(500).json({ message: "Failed to update reservation" });
   }
 };

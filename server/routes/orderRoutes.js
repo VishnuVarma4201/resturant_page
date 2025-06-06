@@ -46,6 +46,9 @@ router.put('/assign/:orderId', authenticateUser, authorizeRoles('admin'), orderC
 // Delivery: Update delivery status
 router.put('/status/:orderId', authenticateUser, authorizeRoles('delivery'), orderController.deliveryUpdateStatus);
 
+// Delivery: Update location
+router.put('/location/:orderId', authenticateUser, authorizeRoles('delivery'), orderController.updateDeliveryLocation);
+
 // Get available delivery persons (admin only)
 router.get('/available-delivery', authenticateUser, authorizeRoles('admin'), orderController.getAvailableDeliveryBoys);
 
