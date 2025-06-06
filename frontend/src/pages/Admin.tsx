@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
+import { useQuery } from "@tanstack/react-query";
 import Layout from "@/components/Layout";
 import SectionHeading from "@/components/SectionHeading";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -15,10 +16,44 @@ import { useAdmin } from "@/context/AdminContext";
 import { useAuth } from "@/context/AuthContext";
 import { useReservation } from "@/context/ReservationContext";
 import { format } from "date-fns";
+import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
+import 'leaflet/dist/leaflet.css';
+import L from 'leaflet';
+
+// Fix Leaflet icon issue
+delete (L.Icon.Default.prototype as any)._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png',
+  iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
+});
+
+interface MapProps {
+  location: [number, number];
+  popupContent?: string;
+}
+
+const OrderMap = ({ location, popupContent }: MapProps) => (
+  <div className="h-[200px] w-full rounded-lg overflow-hidden">
+    <MapContainer
+      center={location}
+      zoom={13}
+      style={{ height: '100%', width: '100%' }}
+    >
+      <TileLayer
+        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+      />
+      <Marker position={location}>
+        {popupContent && <Popup>{popupContent}</Popup>}
+      </Marker>
+    </MapContainer>
+  </div>
+);
 
 const Admin = () => {
-  const { menuItems, orders = [], updateOrderStatus, assignDeliveryBoy, stats, addMenuItem, updateMenuItem, removeMenuItem } = useAdmin();
-  const { user, users = [], fetchDeliveryBoys } = useAuth();
+  const { menuItems, updateOrderStatus, assignDeliveryBoy, addMenuItem, updateMenuItem, removeMenuItem } = useAdmin();
+  const { user, fetchDeliveryBoys } = useAuth();
   const { reservations = [], updateReservationStatus } = useReservation();
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [selectedDeliveryBoy, setSelectedDeliveryBoy] = useState("");
@@ -35,27 +70,45 @@ const Admin = () => {
     category: 'Starters'
   });
 
-  // Fetch delivery boys when component mounts
-  useEffect(() => {
-    if (user?.role === 'admin') {
-      fetchDeliveryBoys();
-    }
-  }, [user]);
+  // Fetch orders using react-query
+  const { data: ordersData, isLoading: ordersLoading } = useQuery({
+    queryKey: ['orders'],
+    queryFn: async () => {
+      const response = await fetch('http://localhost:5000/api/orders', {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        }
+      });
+      if (!response.ok) throw new Error('Failed to fetch orders');
+      return response.json();
+    },
+    refetchInterval: 30000, // Refetch every 30 seconds
+  });
 
-  // Filter delivery boy users from all users
-  const deliveryBoys = users.filter(user => user.role === 'delivery');
+  const orders = ordersData || [];
+
+  // Fetch delivery boys using react-query
+  const { data: deliveryBoysData } = useQuery({
+    queryKey: ['deliveryBoys'],
+    queryFn: async () => {
+      if (user?.role !== 'admin') return { deliveryBoys: [] };
+      return fetchDeliveryBoys();
+    },
+    enabled: user?.role === 'admin'
+  });
+
+  const deliveryBoys = deliveryBoysData?.deliveryBoys || [];
 
   // Filter orders by status
   const pendingOrders = orders.filter(order => order.status === 'placed');
   const processingOrders = orders.filter(order => ['accepted', 'assigned'].includes(order.status));
   const completedOrders = orders.filter(order => order.status === 'delivered');
   const cancelledOrders = orders.filter(order => order.status === 'cancelled');
-
   const handleUpdateOrderStatus = async (orderId: string, status: string) => {
     try {
       setLoading(true);
       await updateOrderStatus(orderId, status);
-      toast.success(`Order ${orderId} updated to ${status}`);
+      toast.success(`Order status updated to ${status}`);
     } catch (error) {
       console.error('Error updating order status:', error);
       toast.error('Failed to update order status');
@@ -63,7 +116,6 @@ const Admin = () => {
       setLoading(false);
     }
   };
-
   const handleAssignDeliveryBoy = async () => {
     if (!selectedDeliveryBoy || !selectedOrder) {
       toast.error('Please select a delivery boy');
@@ -72,7 +124,7 @@ const Admin = () => {
     
     try {
       setLoading(true);
-      await assignDeliveryBoy(selectedOrder.id, selectedDeliveryBoy);
+      await assignDeliveryBoy(selectedOrder._id, selectedDeliveryBoy);
       toast.success('Delivery boy assigned successfully');
       setShowAssignDialog(false);
       setSelectedOrder(null);
@@ -83,7 +135,7 @@ const Admin = () => {
     } finally {
       setLoading(false);
     }
-  };  const handleAddItem = async () => {
+  };const handleAddItem = async () => {
     // Validate required fields
     if (!newItem.name.trim()) {
       toast.error('Name is required');
@@ -188,67 +240,202 @@ const Admin = () => {
     }
   };
 
-  // Render the orders table
-  const renderOrdersTable = (orders: any[]) => (
-    <Table>
-      <TableHeader>
-        <TableRow>
-          <TableHead>Order ID</TableHead>
-          <TableHead>Customer</TableHead>
-          <TableHead>Items</TableHead>
-          <TableHead>Total</TableHead>
-          <TableHead>Status</TableHead>
-          <TableHead>Actions</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {orders.map((order) => (                <TableRow key={order._id}>
-            <TableCell>{order._id}</TableCell>
-            <TableCell>{order.email}</TableCell>
-            <TableCell>{order.items?.length || 0} items</TableCell>
-            <TableCell>₹{order.totalAmount}</TableCell>
-            <TableCell>
-              <Badge>{order.status}</Badge>
-            </TableCell>
-            <TableCell>
-              {order.status === 'placed' && (
-                <>                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleUpdateOrderStatus(order._id, 'accepted')}
-                    disabled={loading}
-                  >
-                    Accept
-                  </Button>
-                  <Button
-                    variant="destructive"
-                    size="sm"
-                    onClick={() => handleUpdateOrderStatus(order._id, 'cancelled')}
-                    disabled={loading}
-                  >
-                    Cancel
-                  </Button>
-                </>
-              )}
-              {order.status === 'accepted' && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setSelectedOrder(order);
-                    setShowAssignDialog(true);
-                  }}
-                  disabled={loading}
-                >
-                  Assign Delivery
-                </Button>
-              )}
-            </TableCell>
+  // Update the OrderType interface
+interface OrderType {
+  _id: string;
+  createdAt: string;
+  currentLocation: {
+    type: string;
+    coordinates: [number, number];
+  };
+  deliveryAddress: {
+    location: {
+      type: string;
+      coordinates: [number, number];
+    };
+    street: string;
+    city: string;
+    state: string;
+    zipCode: string;
+  };
+  deliveryCharge: number;
+  deliveryPhone: string;
+  estimatedDeliveryTime: {
+    start: string;
+    end: string;
+  };
+  items: Array<{
+    _id: string;
+    name: string;
+    price: number;
+    quantity: number;
+  }>;
+  locationHistory: Array<{
+    type: string;
+    coordinates: [number, number];
+    timestamp: string;
+  }>;
+  otp: string;
+  paymentId: string;
+  paymentMethod: string;
+  paymentStatus: string;
+  status: string;
+  subTotal: number;
+  tax: number;
+  totalAmount: number;
+  user: string;
+}
+
+// Add memo for expensive computations
+const memoizedOrders = useMemo(() => {
+  return {
+    pending: orders.filter(order => order.status === 'placed'),
+    processing: orders.filter(order => ['accepted', 'assigned'].includes(order.status)),
+    completed: orders.filter(order => order.status === 'delivered'),
+    cancelled: orders.filter(order => order.status === 'cancelled')
+  };
+}, [orders]);
+
+  // Update the renderOrdersTable function
+  const renderOrdersTable = useCallback((orders: OrderType[]) => {
+    if (ordersLoading) {
+      return (
+        <div className="text-center py-4">Loading orders...</div>
+      );
+    }
+
+    if (!orders || orders.length === 0) {
+      return (
+        <div className="text-center py-4">No orders found</div>
+      );
+    }
+
+    return (
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Order ID</TableHead>
+            <TableHead>Contact</TableHead>
+            <TableHead>Items</TableHead>
+            <TableHead>Amount</TableHead>
+            <TableHead>Payment</TableHead>
+            <TableHead>Status</TableHead>
+            <TableHead>Actions</TableHead>
           </TableRow>
-        ))}
-      </TableBody>
-    </Table>
-  );
+        </TableHeader>
+        <TableBody>
+          {orders.map((order) => (
+            <React.Fragment key={order._id}>
+              <TableRow>
+                <TableCell className="font-medium">
+                  #{order._id.slice(-6)}
+                  <div className="text-xs text-muted-foreground">
+                    {new Date(order.createdAt).toLocaleString()}
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <div>{order.deliveryPhone}</div>
+                  <div className="text-xs text-muted-foreground">
+                    {`${order.deliveryAddress.street}, ${order.deliveryAddress.city}`}
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <div>{order.items.length} items</div>
+                  <div className="text-xs text-muted-foreground">
+                    {order.items.map(item => `${item.quantity}x ${item.name}`).join(', ')}
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <div>₹{order.totalAmount}</div>
+                  <div className="text-xs text-muted-foreground">
+                    Tax: ₹{order.tax}
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <Badge variant={order.paymentStatus === "pending" ? "outline" : "default"}>
+                    {order.paymentMethod} - {order.paymentStatus}
+                  </Badge>
+                </TableCell>
+                <TableCell>
+                  <Badge
+                    className={
+                      order.status === "accepted" ? "bg-green-100 text-green-800" :
+                      order.status === "placed" ? "bg-yellow-100 text-yellow-800" :
+                      order.status === "assigned" ? "bg-blue-100 text-blue-800" :
+                      order.status === "delivered" ? "bg-purple-100 text-purple-800" :
+                      "bg-gray-100 text-gray-800"
+                    }
+                  >
+                    {order.status}
+                    {order.status === "assigned" && order.otp && 
+                      <span className="ml-1 text-xs">OTP: {order.otp}</span>
+                    }
+                  </Badge>
+                </TableCell>
+                <TableCell>
+                  {order.status === 'placed' && (
+                    <>                  <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleUpdateOrderStatus(order._id, 'accepted')}
+                      disabled={loading}
+                    >
+                      Accept
+                    </Button>
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={() => handleUpdateOrderStatus(order._id, 'cancelled')}
+                      disabled={loading}
+                    >
+                      Cancel
+                    </Button>
+                  </>
+                  )}
+                  {order.status === 'accepted' && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setSelectedOrder(order);
+                        setShowAssignDialog(true);
+                      }}
+                      disabled={loading}
+                    >
+                      Assign Delivery
+                    </Button>
+                  )}
+                </TableCell>
+              </TableRow>
+              {(order.status === 'assigned' || order.status === 'accepted') && (
+                <TableRow>
+                  <TableCell colSpan={7} className="p-4">
+                    <OrderMap
+                      location={order.deliveryAddress.location.coordinates.reverse() as [number, number]}
+                      popupContent={`${order.deliveryAddress.street}, ${order.deliveryAddress.city}`}
+                    />
+                  </TableCell>
+                </TableRow>
+              )}
+            </React.Fragment>
+          ))}
+        </TableBody>
+      </Table>
+    );
+  }, [ordersLoading]);
+
+  // Define MenuItem type if not already imported
+  type MenuItem = {
+    _id?: string;
+    id?: string | number;
+    name: string;
+    description: string;
+    image: string;
+    price: number;
+    category: string;
+    createdAt?: string;
+    [key: string]: any;
+  };
 
   const getSortValue = (item: MenuItem): number => {
     if (item.createdAt) {
@@ -511,9 +698,11 @@ const Admin = () => {
                                 <TableCell>{reservation.tableNumber || "—"}</TableCell>
                                 <TableCell>
                                   <Badge className={
-                                    reservation.status === "approved" ? "bg-green-100 text-green-800 hover:bg-green-100" : 
-                                    reservation.status === "rejected" ? "bg-red-100 text-red-800 hover:bg-red-100" :
-                                    "bg-yellow-100 text-yellow-800 hover:bg-yellow-100"
+                                    reservation.status === "approved" 
+                                      ? "bg-green-100 text-green-800 hover:bg-green-100" 
+                                      : reservation.status === "rejected" 
+                                      ? "bg-red-100 text-red-800 hover:bg-red-100" 
+                                      : "bg-yellow-100 text-yellow-800 hover:bg-yellow-100"
                                   }>
                                     {reservation.status}
                                   </Badge>
@@ -617,7 +806,8 @@ const Admin = () => {
                 <SelectTrigger className="col-span-3">
                   <SelectValue placeholder="Select category" />
                 </SelectTrigger>
-                <SelectContent>                  <SelectItem value="Starters">Starters</SelectItem>
+                <SelectContent>
+                  <SelectItem value="Starters">Starters</SelectItem>
                   <SelectItem value="Main Course">Main Course</SelectItem>
                   <SelectItem value="Desserts">Desserts</SelectItem>
                   <SelectItem value="Beverages">Beverages</SelectItem>
@@ -644,9 +834,8 @@ const Admin = () => {
           </DialogHeader>
           <div className="py-4">
             <div className="space-y-4">
-              <div>
-                <p className="text-sm font-medium mb-1">Order:</p>
-                <p className="text-gray-700">#{selectedOrder?.id.toString().split('-')[0]}</p>
+              <div>                <p className="text-sm font-medium mb-1">Order:</p>
+                <p className="text-gray-700">#{selectedOrder?._id}</p>
               </div>
               
               <div>
@@ -655,15 +844,14 @@ const Admin = () => {
               </div>
               
               <div className="space-y-2">
-                <p className="text-sm font-medium mb-1">Select Delivery Boy:</p>
-                <Select value={selectedDeliveryBoy} onValueChange={setSelectedDeliveryBoy}>
+                <p className="text-sm font-medium mb-1">Select Delivery Boy:</p>                <Select value={selectedDeliveryBoy} onValueChange={setSelectedDeliveryBoy}>
                   <SelectTrigger>
                     <SelectValue placeholder="Select delivery boy" />
                   </SelectTrigger>
                   <SelectContent>
-                    {deliveryBoys.map((boy) => (
-                      <SelectItem key={boy.email} value={boy.email}>
-                        {boy.name}
+                    {deliveryBoys?.map((boy) => (
+                      <SelectItem key={boy.id} value={boy.id}>
+                        {boy.name} ({boy.email})
                       </SelectItem>
                     ))}
                   </SelectContent>

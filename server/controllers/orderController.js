@@ -625,12 +625,11 @@ const orderController = {
       res.status(500).json({ message: 'Failed to add delivery feedback' });
     }
   },
-
   getAvailableDeliveryBoys: async (req, res) => {
     try {
-      // Find all users with role 'delivery'
-      const availableDeliveryBoys = await User.find({
-        role: 'delivery'
+      // Find all available delivery boys
+      const availableDeliveryBoys = await DeliveryBoy.find({
+        status: 'available'
       }).select('_id name email phone');
 
       // If no delivery boys found

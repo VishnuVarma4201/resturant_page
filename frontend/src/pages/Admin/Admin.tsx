@@ -59,7 +59,7 @@ const Admin = () => {
         throw error;
       }
     },
-    enabled: !!user?.role === 'admin',
+    enabled: !!user && user.role === 'admin',
     retry: false
   });
 

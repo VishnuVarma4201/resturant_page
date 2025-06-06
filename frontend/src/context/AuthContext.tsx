@@ -12,7 +12,7 @@ interface AuthContextType {
   isAdmin: boolean;
   isDeliveryBoy: boolean;
   loading: boolean;
-  fetchDeliveryBoys: () => Promise<UserResponse[]>;
+  fetchDeliveryBoys: () => Promise<{ deliveryBoys: { id: string; name: string; email: string; phone: string; }[] }>;
 }
 
 interface RegisterData {
@@ -68,20 +68,16 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser] = useState<UserResponse | null>(null);
   const [users, setUsers] = useState<UserResponse[]>([]);
   const [loading, setLoading] = useState(true);
-
   const fetchDeliveryBoys = async () => {
     try {
       const token = localStorage.getItem('token');
-      if (!token) return [];      const { data } = await api.get('/users/delivery-boys', {
+      if (!token) return [];
+        const { data } = await axios.get('http://localhost:5000/api/orders/available-delivery', {
         headers: { Authorization: `Bearer ${token}` }
-      });
-
-      if (data.success) {
-        const deliveryBoys = data.users.map(transformUser);
-        setUsers(prev => [...prev.filter(u => u.role !== 'delivery'), ...deliveryBoys]);
-        return deliveryBoys;
+      });      if (data && data.deliveryBoys) {
+        return { deliveryBoys: data.deliveryBoys };
       }
-      return [];
+      return { deliveryBoys: [] };
     } catch (error) {
       console.error('Error fetching delivery boys:', error);
       return [];

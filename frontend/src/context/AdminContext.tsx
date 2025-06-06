@@ -15,7 +15,6 @@ export interface MenuItem {
 
 interface Order {
   _id: string;
-  id?: string;
   items: any[];
   total: number;
   status: string;
@@ -217,8 +216,7 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const [orders, setOrders] = useState<Order[]>([]);
   const [stats, setStats] = useState<Stats>(initialState.stats);
-  const [error, setError] = useState<string | null>(null);
-  const updateOrderStatus = async (orderId: string, status: string) => {
+  const [error, setError] = useState<string | null>(null);  const updateOrderStatus = async (orderId: string, status: string) => {
     try {
       const token = localStorage.getItem('token');
       const response = await axios.put(
@@ -233,7 +231,7 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       
       if (response.data.success) {
         setOrders(prev => prev.map(order => 
-          (order._id === orderId || order.id === orderId) ? { ...order, status } : order
+          (order._id === orderId) ? { ...order, status } : order
         ));
         toast.success('Order status updated successfully');
       }
@@ -242,7 +240,6 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       toast.error('Failed to update order status');
     }
   };
-
   const assignDeliveryBoy = async (orderId: string, deliveryBoyId: string) => {
     try {
       const token = localStorage.getItem('token');
@@ -258,7 +255,7 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       
       if (response.data.success) {
         setOrders(prev => prev.map(order => 
-          order.id === orderId ? { ...order, deliveryBoyId } : order
+          order._id === orderId ? { ...order, deliveryBoyId } : order
         ));
         toast.success('Delivery boy assigned successfully');
       }

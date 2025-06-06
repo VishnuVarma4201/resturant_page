@@ -1,9 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/use-toast";
-import { User, UserResponse, transformUser, BaseUser } from "@/types/user";
+import { User, UserResponse, transformUser } from "@/types/user";
 import { useMutation, useQuery, useQueryClient, QueryFilters } from "@tanstack/react-query";
 
 interface AdminProfileProps {
@@ -14,7 +14,7 @@ export const AdminProfile = ({ user }: AdminProfileProps) => {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   
-  const { data: profile, isLoading } = useQuery<UserResponse>({
+  const { data: profile, isLoading, error } = useQuery<UserResponse>({
     queryKey: ['adminProfile'],
     queryFn: async () => {
       const response = await fetch('http://localhost:5000/api/admin/profile', {
@@ -30,13 +30,24 @@ export const AdminProfile = ({ user }: AdminProfileProps) => {
   });
 
   const [formData, setFormData] = useState({
-    name: profile?.name || '',
-    email: profile?.email || '',
-    phone: profile?.phone || ''
+    name: '',
+    email: '',
+    phone: ''
   });
 
+  // Add useEffect to update form data when profile changes
+  useEffect(() => {
+    if (profile) {
+      setFormData({
+        name: profile.name,
+        email: profile.email,
+        phone: profile.phone || ''
+      });
+    }
+  }, [profile]);
+
   const updateMutation = useMutation({
-    mutationFn: async (data: Partial<BaseUser>) => {
+    mutationFn: async (data: Partial<User>) => {
       const response = await fetch('http://localhost:5000/api/admin/profile', {
         method: 'PATCH',
         headers: {
@@ -60,8 +71,19 @@ export const AdminProfile = ({ user }: AdminProfileProps) => {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!formData.name || !formData.email) {
+      toast({ 
+        description: "Name and email are required", 
+        variant: "destructive" 
+      });
+      return;
+    }
     updateMutation.mutate(formData);
   };
+
+  if (error) {
+    return <div>Error loading profile</div>;
+  }
 
   return (
     <Card className="max-w-2xl mx-auto">

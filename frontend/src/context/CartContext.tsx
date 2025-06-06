@@ -336,7 +336,7 @@ const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
   const assignDeliveryBoy = (orderId: string, deliveryBoyId: string) => {
     setOrders(prevOrders => 
       prevOrders.map(order => 
-        order.id === orderId ? { ...order, deliveryBoyId, status: "out_for_delivery" } : order
+        order.id === orderId ? { ...order, assignedTo: deliveryBoyId, status: "delivering" } : order
       )
     );
     

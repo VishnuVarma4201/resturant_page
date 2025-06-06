@@ -24,26 +24,36 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Textarea } from "@/components/ui/textarea";
 import axios from "axios";
 import { toast } from "sonner";
-// Make sure the socket module exists at the correct path.
-// If '@/lib/socket' does not exist, update the path below to the actual location.
-// For example, if the file is at 'src/lib/socket.ts', use:
 import { socket } from '../lib/socket';
-// Or adjust the path as needed based on your project structure.
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
-import { Icon } from 'leaflet';
+import L from 'leaflet';
 
-// Custom marker icons
-const deliveryIcon = new Icon({
-  iconUrl: '/delivery-marker.svg',
-  iconSize: [40, 40],
-  iconAnchor: [20, 40],
+// Fix Leaflet default icon issue
+delete (L.Icon.Default.prototype as any)._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png',
+  iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
 });
 
-const destinationIcon = new Icon({
-  iconUrl: '/destination-marker.svg',
-  iconSize: [40, 40],
-  iconAnchor: [20, 40],
+// Custom marker icons
+const deliveryIcon = new L.Icon({
+  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-blue.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
+  iconSize: [25, 41],
+  iconAnchor: [12, 41],
+  popupAnchor: [1, -34],
+  shadowSize: [41, 41]
+});
+
+const destinationIcon = new L.Icon({
+  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
+  iconSize: [25, 41],
+  iconAnchor: [12, 41],
+  popupAnchor: [1, -34],
+  shadowSize: [41, 41]
 });
 
 interface Location {
@@ -287,8 +297,7 @@ const DeliveryTracking = () => {
       </div>
     );
   };
-  
-  const LiveMap = ({ orderId, status, deliveryAddress }) => {
+    const LiveMap = ({ orderId, status, deliveryAddress }) => {
     const [currentLocation, setCurrentLocation] = useState<Location | null>(null);
     const [estimatedInfo, setEstimatedInfo] = useState<{
       distance?: number;
@@ -299,6 +308,15 @@ const DeliveryTracking = () => {
 
     useEffect(() => {
       if (!orderId || status !== 'delivering') return;
+
+      // Set initial location from delivery address
+      if (deliveryAddress?.location?.coordinates) {
+        const [lng, lat] = deliveryAddress.location.coordinates;
+        setCurrentLocation({
+          coordinates: [lat, lng],
+          lastUpdated: new Date()
+        });
+      }
 
       // Listen for location updates
       socket.on('delivery_location_updated', (data: LocationUpdate) => {
@@ -348,14 +366,16 @@ const DeliveryTracking = () => {
       );
     }
 
-    return (
-      <div className="space-y-4">
-        <div className="h-64 relative rounded-lg overflow-hidden">
+    return (      <div className="space-y-4">
+        <div className="h-[400px] relative rounded-lg overflow-hidden">
           <MapContainer
-            center={[currentLocation.coordinates[1], currentLocation.coordinates[0]]}
+            center={currentLocation ? 
+              [currentLocation.coordinates[1], currentLocation.coordinates[0]] : 
+              [20.7504, 73.7333]} // Default center (India)
             zoom={15}
             className="h-full w-full"
             ref={mapRef}
+            style={{ height: '100%', width: '100%' }}
           >
             <TileLayer
               attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
@@ -372,16 +392,18 @@ const DeliveryTracking = () => {
                   Last updated: {new Date(currentLocation.lastUpdated).toLocaleTimeString()}
                 </Popup>
               </Marker>
-            )}
-            {deliveryAddress?.location?.coordinates && (
+            )}            {deliveryAddress?.location?.coordinates && (
               <Marker 
-                position={deliveryAddress.location.coordinates.reverse()} 
+                position={[
+                  deliveryAddress.location.coordinates[1],
+                  deliveryAddress.location.coordinates[0]
+                ]} 
                 icon={destinationIcon}
               >
                 <Popup>
-                  Delivery Address
-                  <br />
-                  {deliveryAddress.street}
+                  <div className="text-sm font-medium">Delivery Address</div>
+                  <div className="text-xs mt-1">{deliveryAddress.street}</div>
+                  <div className="text-xs">{deliveryAddress.city}, {deliveryAddress.state}</div>
                 </Popup>
               </Marker>
             )}
