@@ -530,7 +530,7 @@ const memoizedOrders = useMemo(() => {
   const handleStatusChange = async (deliveryBoyId: string, newStatus: 'active' | 'inactive' | 'suspended') => {
     setUpdatingStatus(deliveryBoyId);
     try {
-      await fetch(`/api/delivery/${deliveryBoyId}/status`, {
+      await fetch(`/api/delivery-boy/${deliveryBoyId}/status`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',

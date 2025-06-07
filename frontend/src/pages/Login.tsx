@@ -252,21 +252,29 @@ const Login = () => {
 
           {/* Social Login Section */}
           <div className="mt-6 text-center">
-            <div className="text-gray-500 mb-4">OR</div>
-            <div className="flex flex-col gap-4">
-              <GoogleLogin
-                onSuccess={handleGoogleSuccess}
-                onError={() => {
-                  toast.error('Google Login Failed');
-                }}
-                theme="filled_black"
-                shape="pill"
-                width="280px"
-              />
+            <div className="text-gray-500 mb-4 font-medium">OR</div>
+            <div className="flex flex-col items-center gap-4">
+              <div className="flex justify-center w-full max-w-[320px] mx-auto">
+                <div className="w-full">
+                  <GoogleLogin
+                    onSuccess={handleGoogleSuccess}
+                    onError={() => {
+                      toast.error('Google Login Failed');
+                    }}
+                    theme="filled_black"
+                    shape="pill"
+                    size="large"
+                    width="320"
+                    text="continue_with"
+                    locale="en"
+                    useOneTap
+                  />
+                </div>
+              </div>
               
               <button
                 type="button"
-                className="w-full h-14 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl shadow-lg transition-all duration-200 flex items-center justify-center gap-2"
+                className="w-full max-w-[320px] h-12 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-full shadow-lg transition-all duration-200 flex items-center justify-center gap-2"
                 onClick={handleTwitterLogin}
                 disabled={loading}
               >

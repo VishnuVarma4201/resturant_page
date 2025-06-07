@@ -37,10 +37,20 @@ const DeliveryBoyForm = ({ onSuccess, className }: DeliveryBoyFormProps) => {
       return;
     }
 
+    // Clean and prepare form data
+    const cleanedFormData = {
+      ...formData,
+      name: formData.name.trim(),
+      email: formData.email.toLowerCase().trim(),
+      phone: formData.phone.replace(/\D/g, ''),
+      password: formData.password
+    };
+
     setLoading(true);
     try {
-      const response = await axios.post('/api/delivery/register', formData, {
+      const response = await axios.post('http://localhost:5000/api/delivery-boy/register', cleanedFormData, {
         headers: {
+          'Content-Type': 'application/json',
           'Authorization': `Bearer ${localStorage.getItem('token')}`
         }
       });
@@ -56,9 +66,20 @@ const DeliveryBoyForm = ({ onSuccess, className }: DeliveryBoyFormProps) => {
         onSuccess?.();
       }
     } catch (error: any) {
+      console.error('Error creating delivery boy:', error.response?.data || error.message);
       const errorMessage = error.response?.data?.message || "Failed to create delivery boy account";
       toast.error(errorMessage);
       
+      // Handle validation errors
+      if (error.response?.data?.required) {
+        const newErrors: Partial<DeliveryBoyFormData> = {};
+        error.response.data.required.forEach((field: string) => {
+          newErrors[field as keyof DeliveryBoyFormData] = `${field} is required`;
+        });
+        setErrors(newErrors);
+      }
+      
+      // Handle other specific errors
       if (error.response?.data?.errors) {
         setErrors(error.response.data.errors);
       }
@@ -87,9 +108,13 @@ const DeliveryBoyForm = ({ onSuccess, className }: DeliveryBoyFormProps) => {
     if (!formData.phone) {
       newErrors.phone = 'Phone number is required';
       isValid = false;
-    } else if (!/^\+?[\d\s-]{10,}$/.test(formData.phone.replace(/\s+/g, ''))) {
-      newErrors.phone = 'Please enter a valid phone number';
-      isValid = false;
+    } else {
+      // Remove any non-digit characters
+      const cleanPhone = formData.phone.replace(/\D/g, '');
+      if (cleanPhone.length !== 10) {
+        newErrors.phone = 'Phone number must be 10 digits';
+        isValid = false;
+      }
     }
 
     if (!formData.password) {
@@ -106,10 +131,28 @@ const DeliveryBoyForm = ({ onSuccess, className }: DeliveryBoyFormProps) => {
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: value
-    }));
+    
+    // Format phone number if the field is phone
+    if (name === 'phone') {
+      const digits = value.replace(/\D/g, '');
+      if (digits.length <= 10) {
+        const parts = digits.match(/(\d{0,3})(\d{0,3})(\d{0,4})/);
+        const formatted = !parts ? '' :
+          (!parts[2] ? parts[1] : // only first group
+            !parts[3] ? `${parts[1]}-${parts[2]}` : // first and second
+            `${parts[1]}-${parts[2]}-${parts[3]}`); // all parts
+        setFormData(prev => ({
+          ...prev,
+          [name]: formatted
+        }));
+      }
+    } else {
+      setFormData(prev => ({
+        ...prev,
+        [name]: value
+      }));
+    }
+
     // Clear error when user starts typing
     if (errors[name as keyof DeliveryBoyFormData]) {
       setErrors(prev => ({

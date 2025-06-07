@@ -898,3 +898,44 @@ Starting graceful shutdown...
 [2025-06-07T16:00:03.374Z] "PUT /api/admin/orders/6842dc0cc69546f71c16c327/assign" 404 666.977 ms - 52
 [2025-06-07T16:01:52.559Z] "PUT /api/admin/orders/6842dc0cc69546f71c16c327/assign" 404 155.970 ms - 52
 [2025-06-07T16:05:37.216Z] "PUT /api/admin/orders/6842dc0cc69546f71c16c327/assign" 500 302.644 ms - 59
+[2025-06-07T16:51:35.207Z] "POST /api/delivery-boy/register" 404 36.711 ms - 165
+Starting graceful shutdown...
+[2025-06-07T16:55:18.498Z] "GET /api/delivery-boys" 404 6.071 ms - 156
+[2025-06-07T16:55:18.513Z] "GET /api/delivery-boys" 404 0.731 ms - 156
+[2025-06-07T16:55:18.551Z] "GET /api/delivery-boys" 404 1.546 ms - 156
+[2025-06-07T16:55:19.589Z] "GET /api/delivery-boys" 404 2.256 ms - 156
+[2025-06-07T16:55:21.633Z] "GET /api/delivery-boys" 404 2.821 ms - 156
+[2025-06-07T16:55:23.309Z] "GET /api/delivery-boys" 404 0.532 ms - 156
+[2025-06-07T16:55:23.314Z] "GET /api/delivery-boys" 404 0.554 ms - 156
+[2025-06-07T16:55:23.322Z] "GET /api/delivery-boys" 404 0.651 ms - 156
+[2025-06-07T16:55:24.419Z] "GET /api/delivery-boys" 404 0.819 ms - 156
+Starting graceful shutdown...
+[2025-06-07T16:55:39.623Z] "GET /api/delivery-boys" 404 3.663 ms - 156
+[2025-06-07T16:55:41.558Z] "GET /api/delivery-boys" 404 0.791 ms - 156
+[2025-06-07T16:55:41.570Z] "GET /api/delivery-boys" 404 1.067 ms - 156
+[2025-06-07T16:55:41.598Z] "GET /api/delivery-boys" 404 3.654 ms - 156
+[2025-06-07T16:55:42.714Z] "GET /api/delivery-boys" 404 0.761 ms - 156
+[2025-06-07T16:55:44.742Z] "GET /api/delivery-boys" 404 1.427 ms - 156
+[2025-06-07T16:55:48.786Z] "GET /api/delivery-boys" 404 1.246 ms - 156
+[2025-06-07T16:56:47.138Z] "GET /api/delivery-boys" 404 1.970 ms - 156
+[2025-06-07T16:57:11.577Z] "GET /api/delivery-boys" 404 0.963 ms - 156
+[2025-06-07T16:57:12.609Z] "GET /api/delivery-boys" 404 3.079 ms - 156
+[2025-06-07T16:57:14.654Z] "GET /api/delivery-boys" 404 1.355 ms - 156
+[2025-06-07T16:57:16.703Z] "GET /api/delivery-boys" 404 0.557 ms - 156
+[2025-06-07T16:57:16.706Z] "GET /api/delivery-boys" 404 0.369 ms - 156
+[2025-06-07T16:57:16.712Z] "GET /api/delivery-boys" 404 0.790 ms - 156
+[2025-06-07T16:57:17.803Z] "GET /api/delivery-boys" 404 2.164 ms - 156
+[2025-06-07T16:57:19.833Z] "GET /api/delivery-boys" 404 0.649 ms - 156
+[2025-06-07T16:57:23.869Z] "GET /api/delivery-boys" 404 1.044 ms - 156
+[2025-06-07T16:58:11.706Z] "GET /api/delivery-boys" 404 5.926 ms - 156
+[2025-06-07T16:58:12.741Z] "GET /api/delivery-boys" 404 2.955 ms - 156
+[2025-06-07T16:58:13.917Z] "GET /api/delivery-boys" 404 0.510 ms - 156
+[2025-06-07T16:58:13.921Z] "GET /api/delivery-boys" 404 0.602 ms - 156
+[2025-06-07T16:58:13.932Z] "GET /api/delivery-boys" 404 1.375 ms - 156
+[2025-06-07T16:58:15.049Z] "GET /api/delivery-boys" 404 2.378 ms - 156
+[2025-06-07T16:58:17.132Z] "GET /api/delivery-boys" 404 1.701 ms - 156
+[2025-06-07T16:58:21.168Z] "GET /api/delivery-boys" 404 2.573 ms - 156
+Starting graceful shutdown...
+[2025-06-07T17:01:36.299Z] "POST /api/auth/login" 401 38.812 ms - 49
+[2025-06-07T17:02:03.132Z] "POST /api/auth/login" 401 34.587 ms - 49
+Starting graceful shutdown...

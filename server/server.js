@@ -80,7 +80,7 @@ app.use("/api/menu", apiLimiter, menuRoute);
 app.use("/api/orders", apiLimiter, orderRoute);
 app.use("/api/reservations", apiLimiter, reservationRoute);
 app.use("/api/payments", apiLimiter, paymentRoute);
-app.use("/api/delivery-boys", apiLimiter, deliveryBoyRoute);
+app.use("/api/delivery-boy", apiLimiter, deliveryBoyRoute);
 app.use("/api/admin", apiLimiter, adminRoute);
 app.use('/api/menu', menuRoutes);
 app.use('/api/users', apiLimiter, userRoutes);

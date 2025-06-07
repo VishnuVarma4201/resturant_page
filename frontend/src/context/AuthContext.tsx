@@ -68,8 +68,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [loading, setLoading] = useState(true);
   const fetchDeliveryBoys = async () => {
     try {      const token = localStorage.getItem('token');
-      if (!token) throw new Error('No token found');
-        const response = await api.get('/delivery-boys');
+      if (!token) throw new Error('No token found');      const response = await api.get('/delivery-boy');
       const deliveryBoys = response.data || [];
       return {
         deliveryBoys: deliveryBoys.map((db: any) => ({
