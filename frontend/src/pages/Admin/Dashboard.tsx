@@ -6,6 +6,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { MenuManagement } from './MenuManagement';
 import { ReservationManagement } from './ReservationManagement';
 import { AdminProfile } from './AdminProfile';
+import { DeliveryBoyManagement } from './DeliveryBoyManagement';
 import { Table } from "@/components/ui/table";
 
 const Dashboard = () => {
@@ -90,6 +91,7 @@ const Dashboard = () => {
         <TabsList>
           <TabsTrigger value="menu">Menu Management</TabsTrigger>
           <TabsTrigger value="reservations">Reservations</TabsTrigger>
+          <TabsTrigger value="delivery">Delivery</TabsTrigger>
           <TabsTrigger value="profile">Profile</TabsTrigger>
         </TabsList>
 
@@ -99,8 +101,9 @@ const Dashboard = () => {
         
         <TabsContent value="reservations">
           <ReservationManagement />
+        </TabsContent>        <TabsContent value="delivery">
+          <DeliveryBoyManagement />
         </TabsContent>
-
         <TabsContent value="profile">
           <AdminProfile user={user} />
         </TabsContent>

@@ -5,8 +5,10 @@ import { User, UserResponse, transformUser } from '@/types/user';
 interface AuthContextType {
   user: UserResponse | null;
   users: UserResponse[];
-  login: (email: string, password: string) => Promise<void>;
-  register: (userData: RegisterData) => Promise<void>;
+  login: (email: string, password: string) => Promise<AuthResponse>;
+  register: (userData: RegisterData) => Promise<AuthResponse>;
+  googleLogin: (credential: string) => Promise<AuthResponse>;
+  twitterLogin: (oauthToken: string, oauthVerifier: string) => Promise<AuthResponse>;
   logout: () => void;
   isAuthenticated: boolean;
   isAdmin: boolean;
@@ -26,37 +28,33 @@ interface RegisterData {
 interface AuthResponse {
   success: boolean;
   token: string;
-  user: {
-    _id: string;
-    name: string;
-    email: string;
-    role: string;
-  };
+  user: UserResponse;
 }
 
-// Setup axios instance with updated config
+// Setup axios instance with base config
 const api = axios.create({
   baseURL: 'http://localhost:5000/api',
   headers: { 'Content-Type': 'application/json' }
 });
 
-// Configure axios
+// Configure axios interceptors
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('token');
-  
   if (token && token !== 'null' && token !== 'undefined') {
-    const cleanToken = token.replace('Bearer ', '').trim();
-    config.headers.Authorization = `Bearer ${cleanToken}`;
+    config.headers.Authorization = `Bearer ${token}`;
   }
   return config;
 });
 
 api.interceptors.response.use(
   (response) => response,
-  async (error) => {
+  async (error: AxiosError) => {
     if (error.response?.status === 401) {
       localStorage.removeItem('token');
-      window.location.href = '/login';
+      // Don't redirect if we're already on the login page
+      if (!window.location.pathname.includes('/login')) {
+        window.location.href = '/login';
+      }
     }
     return Promise.reject(error);
   }
@@ -69,18 +67,25 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [users, setUsers] = useState<UserResponse[]>([]);
   const [loading, setLoading] = useState(true);
   const fetchDeliveryBoys = async () => {
-    try {
-      const token = localStorage.getItem('token');
-      if (!token) return [];
-        const { data } = await axios.get('http://localhost:5000/api/orders/available-delivery', {
-        headers: { Authorization: `Bearer ${token}` }
-      });      if (data && data.deliveryBoys) {
-        return { deliveryBoys: data.deliveryBoys };
-      }
-      return { deliveryBoys: [] };
+    try {      const token = localStorage.getItem('token');
+      if (!token) throw new Error('No token found');
+        const response = await api.get('/delivery-boys');
+      const deliveryBoys = response.data || [];
+      return {
+        deliveryBoys: deliveryBoys.map((db: any) => ({
+          id: db._id,
+          name: db.name,
+          email: db.email,
+          phone: db.phone,
+          status: db.status || 'active',
+          isAvailable: db.isAvailable || false,
+          currentLocation: db.currentLocation,
+          rating: db.ratings?.average || 0,          totalDeliveries: db.performance?.totalDeliveries || 0
+        }))
+      };
     } catch (error) {
       console.error('Error fetching delivery boys:', error);
-      return [];
+      throw error;
     }
   };
 
@@ -88,13 +93,12 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     try {
       const token = localStorage.getItem('token');
       
-      if (!token || token === 'null' || token === 'undefined') {
-        localStorage.removeItem('token');
+      if (!token) {
         setLoading(false);
         return;
-      }      const { data } = await api.get('/auth/validate', {
-        headers: { Authorization: `Bearer ${token.replace('Bearer ', '').trim()}` }
-      });
+      }
+
+      const { data } = await api.get<{ user: UserResponse }>('/auth/validate');
 
       if (data.user) {
         setUser(transformUser(data.user));
@@ -110,12 +114,15 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   useEffect(() => {
     validateToken();
+  }, []);
+
+  useEffect(() => {
     if (user?.role === 'admin') {
       fetchDeliveryBoys();
     }
   }, [user?.role]);
 
-  const login = async (email: string, password: string) => {
+  const login = async (email: string, password: string): Promise<AuthResponse> => {
     try {
       const { data } = await api.post<AuthResponse>('/auth/login', { 
         email, 
@@ -126,55 +133,102 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         throw new Error('Invalid login response');
       }
 
-      // Store clean token
-      const cleanToken = data.token.replace('Bearer ', '').trim();
-      localStorage.setItem('token', cleanToken);
+      localStorage.setItem('token', data.token);
       setUser(transformUser(data.user));
+      
+      // Update axios default header
+      api.defaults.headers.common['Authorization'] = `Bearer ${data.token}`;
 
+      return data;
     } catch (error) {
+      console.error('Login error:', error);
       localStorage.removeItem('token');
       setUser(null);
       throw error;
     }
   };
-
-  const register = async (userData: RegisterData) => {
+  const register = async (userData: RegisterData): Promise<AuthResponse> => {
     try {
-      const response = await api.post('/auth/register', userData);
-      if (response.data.token) {
-        localStorage.setItem('token', response.data.token);
-        api.defaults.headers.common['Authorization'] = `Bearer ${response.data.token}`;
-        setUser(response.data.user);
-        return response.data;
+      const { data } = await api.post<AuthResponse>('/auth/register', userData);
+
+      if (!data.token) {
+        throw new Error('Registration failed: No token received');
       }
-      throw new Error('Invalid response from server');
-    } catch (error) {
+
+      // Add success flag if not present
+      return {
+        ...data,
+        success: true
+      };
+    } catch (error: any) {
       console.error('Registration error:', error);
       if (error.response?.data?.message) {
-        throw error.response.data.message;
+        throw new Error(error.response.data.message);
       }
-      throw 'Registration failed. Please try again.';
+      throw error instanceof Error ? error : new Error('Registration failed. Please try again.');
+    }
+  };
+
+  const googleLogin = async (credential: string): Promise<AuthResponse> => {
+    try {
+      setLoading(true);
+      const response = await api.post<AuthResponse>('/auth/google', { credential });
+      
+      if (response.data.token) {
+        localStorage.setItem('token', response.data.token);
+        setUser(transformUser(response.data.user));
+        return response.data;
+      }
+      throw new Error('No token received from server');
+    } catch (error: any) {
+      console.error('Google login error:', error);
+      const errorMessage = error.response?.data?.message || "Failed to authenticate with Google";
+      throw new Error(errorMessage);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const twitterLogin = async (oauthToken: string, oauthVerifier: string): Promise<AuthResponse> => {
+    try {
+      const response = await api.post<AuthResponse>('/auth/twitter/callback', {
+        oauth_token: oauthToken,
+        oauth_verifier: oauthVerifier
+      });
+      if (response.data.token) {
+        localStorage.setItem('token', response.data.token);
+        setUser(response.data.user);
+      }
+      return response.data;
+    } catch (error) {
+      console.error('Twitter login error:', error);
+      throw error;
     }
   };
 
   const logout = () => {
     localStorage.removeItem('token');
     setUser(null);
+    delete api.defaults.headers.common['Authorization'];
+  };
+
+  const contextValue: AuthContextType = {
+    user,
+    users,
+    login,
+    register,
+    logout,
+    loading,
+    isAuthenticated: !!user,
+    isAdmin: user?.role === 'admin',
+    isDeliveryBoy: user?.role === 'delivery',
+    fetchDeliveryBoys,
+    googleLogin,
+    twitterLogin
   };
 
   return (
-    <AuthContext.Provider value={{
-      user,
-      users,
-      login,
-      register,
-      logout,
-      loading,
-      isAuthenticated: !!user,
-      isAdmin: user?.role === 'admin',
-      isDeliveryBoy: user?.role === 'delivery',
-      fetchDeliveryBoys
-    }}>
+    <AuthContext.Provider value={contextValue}>
       {children}
     </AuthContext.Provider>
   );

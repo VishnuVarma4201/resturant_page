@@ -191,74 +191,73 @@ const getDeliveryBoyDetails = async (req, res) => {
 
 const updateLocation = async (req, res) => {
   try {
-    const { orderId } = req.params;
     const { latitude, longitude } = req.body;
+    const deliveryBoyId = req.user.id;
 
-    // Validate location data
     if (!latitude || !longitude) {
-      return res.status(400).json({ 
-        message: 'Location coordinates are required',
-        required: ['latitude', 'longitude']
-      });
+      return res.status(400).json({ message: 'Location coordinates are required' });
     }
 
-    // Find active order
-    const order = await Order.findById(orderId)
-      .populate('user', 'name email')
-      .populate('assignedTo', 'name');
-
-    if (!order) {
-      return res.status(404).json({ message: 'Order not found' });
-    }
-
-    // Verify delivery boy assignment
-    if (order.assignedTo._id.toString() !== req.user._id.toString()) {
-      return res.status(403).json({ message: 'Not authorized to update this order\'s location' });
-    }
-
-    // Broadcast location update
-    socketManager.handleDeliveryLocationUpdate({
-      orderId: order._id,
-      location: { latitude, longitude },
-      deliveryBoyId: req.user._id,
-      userId: order.user._id
+    // Update delivery boy location in database
+    await DeliveryBoy.findByIdAndUpdate(deliveryBoyId, {
+      currentLocation: {
+        type: 'Point',
+        coordinates: [longitude, latitude]
+      }
     });
 
-    res.json({ 
-      message: 'Location updated successfully',
+    // Emit location update via socket
+    const io = req.app.get('io');
+    io.to(`delivery_${deliveryBoyId}`).emit('location_update', {
+      deliveryBoyId,
       location: { latitude, longitude }
     });
-  } catch (err) {
-    console.error('Error updating location:', err);
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error updating location:', error);
     res.status(500).json({ message: 'Failed to update location' });
   }
 };
 
-// Add missing functions
 const getDeliveryStats = async (req, res) => {
   try {
     const deliveryBoyId = req.user.id;
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const thisMonth = new Date(today.getFullYear(), today.getMonth(), 1);
 
-    const stats = await DeliveryBoy.findById(deliveryBoyId).select('-password');
-    const todayDeliveries = await Order.countDocuments({
-      'delivery.deliveryBoy': deliveryBoyId,
-      'delivery.deliveredAt': { $gte: today },
-      status: 'delivered'
-    });
+    const deliveryBoy = await DeliveryBoy.findById(deliveryBoyId)
+      .select('deliveries earnings ratings performance')
+      .lean();
+
+    const todayStats = await Order.aggregate([
+      {
+        $match: {
+          deliveryBoy: deliveryBoyId,
+          createdAt: { $gte: today },
+          status: 'delivered'
+        }
+      },
+      {
+        $group: {
+          _id: null,
+          totalEarnings: { $sum: '$deliveryFee' },
+          totalOrders: { $sum: 1 }
+        }
+      }
+    ]);
 
     res.json({
-      todayDeliveries,
-      totalTips: stats.earnings?.tips || 0,
-      monthlyEarnings: stats.earnings?.monthly || 0,
-      rating: stats.rating || 0,
-      totalDeliveries: stats.deliveries?.length || 0
+      totalDeliveries: deliveryBoy.performance.totalDeliveries,
+      completionRate: deliveryBoy.performance.completionRate,
+      averageRating: deliveryBoy.ratings.average,
+      totalEarnings: deliveryBoy.earnings.total,
+      todayEarnings: todayStats[0]?.totalEarnings || 0,
+      onTimeRate: deliveryBoy.performance.onTimeRate
     });
   } catch (error) {
-    console.error('Error getting delivery stats:', error);
-    res.status(500).json({ message: 'Error fetching delivery statistics' });
+    console.error('Error fetching delivery stats:', error);
+    res.status(500).json({ message: 'Failed to fetch delivery statistics' });
   }
 };
 
@@ -294,17 +293,39 @@ const updateDeliveryStatus = async (req, res) => {
 const getActiveDeliveries = async (req, res) => {
   try {
     const deliveryBoyId = req.user.id;
-    const activeDeliveries = await Order.find({
-      'delivery.deliveryBoy': deliveryBoyId,
-      status: { $in: ['accepted', 'out_for_delivery'] }
+    const activeOrders = await Order.find({
+      deliveryBoy: deliveryBoyId,
+      status: { $in: ['assigned', 'picked_up', 'out_for_delivery'] }
     })
-    .sort({ createdAt: -1 })
-    .populate('user', 'name phone address');
+    .populate('items.menuItem', 'name price image')
+    .populate('user', 'name phone')
+    .lean();
 
-    res.json(activeDeliveries);
+    const formattedOrders = activeOrders.map(order => ({
+      id: order._id,
+      status: order.status,
+      customer: {
+        name: order.user.name,
+        phone: order.user.phone,
+        address: order.deliveryAddress
+      },
+      items: order.items.map(item => ({
+        id: item.menuItem._id,
+        name: item.menuItem.name,
+        quantity: item.quantity,
+        image: item.menuItem.image
+      })),
+      total: order.total,
+      deliveryFee: order.deliveryFee,
+      createdAt: order.createdAt,
+      expectedDeliveryTime: order.expectedDeliveryTime,
+      paymentMethod: order.paymentMethod
+    }));
+
+    res.json({ orders: formattedOrders });
   } catch (error) {
-    console.error('Error getting active deliveries:', error);
-    res.status(500).json({ message: 'Error fetching active deliveries' });
+    console.error('Error fetching active deliveries:', error);
+    res.status(500).json({ message: 'Failed to fetch active deliveries' });
   }
 };
 

@@ -1,5 +1,6 @@
 const User = require('../models/User');
 const Order = require('../models/Order');
+const DeliveryBoy = require('../models/DeliveryBoy');
 
 exports.getProfile = async (req, res) => {
   try {
@@ -41,15 +42,27 @@ exports.assignDeliveryBoy = async (req, res) => {
     const order = await Order.findById(orderId);
     if (!order) {
       return res.status(404).json({ success: false, message: 'Order not found' });
-    }
-
-    const deliveryBoy = await User.findOne({ _id: deliveryBoyId, role: 'delivery' });
+    }    const deliveryBoy = await DeliveryBoy.findById(deliveryBoyId);
     if (!deliveryBoy) {
       return res.status(404).json({ success: false, message: 'Delivery boy not found' });
     }
 
-    order.deliveryBoyId = deliveryBoyId;
+    // Check if delivery boy is active and available
+    if (deliveryBoy.status !== 'active') {
+      return res.status(400).json({ success: false, message: 'Delivery boy is not active' });
+    }
+    if (!deliveryBoy.isAvailable) {
+      return res.status(400).json({ success: false, message: 'Delivery boy is not available' });
+    }
+
+    // Update order with the assigned delivery boy
+    order.assignedTo = deliveryBoyId;
+    order.status = 'assigned';
     await order.save();
+
+    // Update delivery boy availability
+    deliveryBoy.isAvailable = false;
+    await deliveryBoy.save();
 
     res.json({ success: true, order });
   } catch (error) {

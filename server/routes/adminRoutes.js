@@ -20,7 +20,7 @@ router.patch('/profile', updateProfile);
 // Dashboard and order management routes
 router.get('/dashboard', getDashboard);
 router.put('/orders/:orderId', updateOrderStatus);
-router.put('/orders/:orderId/assign', assignDeliveryBoy);
+router.put('/orders/:orderId/assign', assignDeliveryBoy); // Admin route for assigning delivery boy
 
 // Dashboard route (will be removed)
 router.get('/dashboard-old', authenticateUser, authorizeRoles('admin'), async (req, res) => {

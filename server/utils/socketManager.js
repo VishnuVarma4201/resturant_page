@@ -65,6 +65,64 @@ const initialize = (server) => {
       });
     });
 
+    // Handle delivery boy location updates
+    socket.on('location_update', ({ deliveryBoyId, location }) => {
+      if (!deliveryBoyId || !location) return;
+      
+      // Store the location
+      const deliverySocket = connections.deliveryBoys.get(deliveryBoyId);
+      if (deliverySocket) {
+        deliverySocket.location = location;
+        
+        // Emit location update to relevant order rooms
+        socket.rooms.forEach(room => {
+          if (room.startsWith('order_')) {
+            io.to(room).emit('delivery_location_update', {
+              deliveryBoyId,
+              location,
+              timestamp: Date.now()
+            });
+          }
+        });
+      }
+    });
+
+    // Handle order status updates
+    socket.on('order_status_update', async ({ orderId, status, location }) => {
+      try {
+        // Broadcast the status update to all relevant parties
+        io.to(`order_${orderId}`).emit('order_status_changed', {
+          orderId,
+          status,
+          location,
+          timestamp: Date.now()
+        });
+
+        // If order is completed, notify admins
+        if (status === 'completed') {
+          io.to('admins').emit('order_completed', { orderId });
+        }
+      } catch (error) {
+        console.error('Error updating order status:', error);
+        socket.emit('error', { message: 'Failed to update order status' });
+      }
+    });
+
+    // Handle delivery boy status updates
+    socket.on('delivery_status_update', ({ deliveryBoyId, status }) => {
+      if (!deliveryBoyId) return;
+      
+      const deliverySocket = connections.deliveryBoys.get(deliveryBoyId);
+      if (deliverySocket) {
+        deliverySocket.status = status;
+        io.to('admins').emit('delivery_boy_status_update', {
+          deliveryBoyId,
+          status,
+          timestamp: Date.now()
+        });
+      }
+    });
+
     // Handle join order room
     socket.on('join_order_room', ({ orderId, userId, role }) => {
       const roomId = `order_${orderId}`;
@@ -99,7 +157,27 @@ const initialize = (server) => {
     // Handle disconnection
     socket.on('disconnect', () => {
       console.log('🔴 Socket disconnected:', socket.id);
-      cleanupConnection(socket);
+      
+      // Clean up connections
+      connections.users.forEach((s, userId) => {
+        if (s === socket) connections.users.delete(userId);
+      });
+      
+      connections.deliveryBoys.forEach((s, deliveryBoyId) => {
+        if (s === socket) {
+          connections.deliveryBoys.delete(deliveryBoyId);
+          // Notify admins about delivery boy going offline
+          io.to('admins').emit('delivery_boy_offline', { deliveryBoyId });
+        }
+      });
+      
+      connections.admins.delete(socket);
+    });
+
+    // Error handling
+    socket.on('error', (error) => {
+      console.error('Socket error:', error);
+      socket.emit('error', { message: 'An error occurred' });
     });
   });
 };

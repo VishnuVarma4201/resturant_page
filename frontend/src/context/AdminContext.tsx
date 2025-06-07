@@ -239,8 +239,7 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       console.error('Failed to update order status:', error);
       toast.error('Failed to update order status');
     }
-  };
-  const assignDeliveryBoy = async (orderId: string, deliveryBoyId: string) => {
+  };  const assignDeliveryBoy = async (orderId: string, deliveryBoyId: string) => {
     try {
       const token = localStorage.getItem('token');
       const response = await axios.put(
@@ -254,14 +253,16 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       );
       
       if (response.data.success) {
+        const updatedOrder = response.data.order;
         setOrders(prev => prev.map(order => 
-          order._id === orderId ? { ...order, deliveryBoyId } : order
+          order._id === orderId ? { ...order, assignedTo: updatedOrder.assignedTo, status: updatedOrder.status } : order
         ));
-        toast.success('Delivery boy assigned successfully');
-      }
-    } catch (error) {
+        toast.success('Delivery boy assigned successfully');      }
+    } catch (error: any) {
       console.error('Failed to assign delivery boy:', error);
-      toast.error('Failed to assign delivery boy');
+      const errorMessage = error.response?.data?.message || 'Failed to assign delivery boy';
+      toast.error(errorMessage);
+      throw error;
     }
   };
 

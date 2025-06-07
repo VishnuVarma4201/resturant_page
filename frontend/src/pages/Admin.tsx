@@ -19,6 +19,7 @@ import { format } from "date-fns";
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
+import DeliveryBoyForm from "@/components/forms/DeliveryBoyForm";
 
 // Fix Leaflet icon issue
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -51,9 +52,23 @@ const OrderMap = ({ location, popupContent }: MapProps) => (
   </div>
 );
 
+interface DeliveryBoy {
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+  status: 'active' | 'inactive' | 'suspended';
+  isAvailable: boolean;
+  currentLocation?: {
+    coordinates: [number, number];
+  };
+  rating: number;
+  totalDeliveries: number;
+}
+
 const Admin = () => {
   const { menuItems, updateOrderStatus, assignDeliveryBoy, addMenuItem, updateMenuItem, removeMenuItem } = useAdmin();
-  const { user, fetchDeliveryBoys } = useAuth();
+  const { user, fetchDeliveryBoys: fetchDeliveryBoysFromAuth } = useAuth();
   const { reservations = [], updateReservationStatus } = useReservation();
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [selectedDeliveryBoy, setSelectedDeliveryBoy] = useState("");
@@ -69,6 +84,30 @@ const Admin = () => {
     image: '',
     category: 'Starters'
   });
+  const [showDeliveryBoyForm, setShowDeliveryBoyForm] = useState(false);
+  const [deliveryBoys, setDeliveryBoys] = useState<DeliveryBoy[]>([]);
+  const [isLoadingDeliveryBoys, setIsLoadingDeliveryBoys] = useState(false);
+
+  const handleDeliveryBoySuccess = useCallback(() => {
+    setShowDeliveryBoyForm(false);
+    toast.success('Delivery boy added successfully');
+    // Refetch delivery boys list
+    fetchDeliveryBoysFromAuth().then(data => {
+      const transformedDeliveryBoys = data.deliveryBoys.map(boy => ({
+        ...boy,
+        status: 'active' as const,
+        isAvailable: true,
+        rating: 0,
+        totalDeliveries: 0
+      }));
+      setDeliveryBoys(transformedDeliveryBoys);
+    });
+  }, [fetchDeliveryBoysFromAuth]);
+  const [deliveryBoyFilter, setDeliveryBoyFilter] = useState('all');
+  const [searchQuery, setSearchQuery] = useState('');
+
+  // Add loading states for delivery boy actions
+  const [updatingStatus, setUpdatingStatus] = useState<string | null>(null);
 
   // Fetch orders using react-query
   const { data: ordersData, isLoading: ordersLoading } = useQuery({
@@ -92,12 +131,12 @@ const Admin = () => {
     queryKey: ['deliveryBoys'],
     queryFn: async () => {
       if (user?.role !== 'admin') return { deliveryBoys: [] };
-      return fetchDeliveryBoys();
+      return fetchDeliveryBoysFromAuth();
     },
     enabled: user?.role === 'admin'
   });
 
-  const deliveryBoys = deliveryBoysData?.deliveryBoys || [];
+  const deliveryBoysList = deliveryBoysData?.deliveryBoys || [];
 
   // Filter orders by status
   const pendingOrders = orders.filter(order => order.status === 'placed');
@@ -161,6 +200,7 @@ const Admin = () => {
     try {
       setLoading(true);
       await addMenuItem({
+        _id: '', // Add empty string as placeholder, will be replaced by MongoDB
         name: newItem.name.trim(),
         description: newItem.description.trim(),
         image: newItem.image.trim(),
@@ -463,6 +503,64 @@ const memoizedOrders = useMemo(() => {
     }
   };
 
+  // Fetch delivery boys
+  useEffect(() => {
+    const loadDeliveryBoys = async () => {
+      setIsLoadingDeliveryBoys(true);
+      try {
+        const data = await fetchDeliveryBoysFromAuth();
+        const transformedDeliveryBoys = data.deliveryBoys.map(boy => ({
+          ...boy,
+          status: 'active' as const,
+          isAvailable: true,
+          rating: 0,
+          totalDeliveries: 0
+        }));
+        setDeliveryBoys(transformedDeliveryBoys);
+      } catch (error) {
+        toast.error("Failed to load delivery boys");
+      } finally {
+        setIsLoadingDeliveryBoys(false);
+      }
+    };
+
+    loadDeliveryBoys();
+  }, [fetchDeliveryBoysFromAuth]);
+
+  const handleStatusChange = async (deliveryBoyId: string, newStatus: 'active' | 'inactive' | 'suspended') => {
+    setUpdatingStatus(deliveryBoyId);
+    try {
+      await fetch(`/api/delivery/${deliveryBoyId}/status`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+        },
+        body: JSON.stringify({ status: newStatus }),
+      });
+      
+      setDeliveryBoys(prev => 
+        prev.map(db => db.id === deliveryBoyId ? { ...db, status: newStatus } : db)
+      );
+      toast.success("Status updated successfully");
+    } catch (error) {
+      toast.error("Failed to update status");
+    } finally {
+      setUpdatingStatus(null);
+    }
+  };
+
+  const filteredDeliveryBoys = useMemo(() => {
+    return deliveryBoys.filter(db => {
+      const matchesFilter = deliveryBoyFilter === 'all' || db.status === deliveryBoyFilter;
+      const matchesSearch = searchQuery === '' || 
+        db.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        db.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        db.phone.includes(searchQuery);
+      return matchesFilter && matchesSearch;
+    });
+  }, [deliveryBoys, deliveryBoyFilter, searchQuery]);
+
   return (
     <Layout>
       <div className="min-h-screen pt-24 pb-16">
@@ -478,6 +576,7 @@ const memoizedOrders = useMemo(() => {
                 <TabsTrigger value="orders">Orders</TabsTrigger>
                 <TabsTrigger value="menu">Menu</TabsTrigger>
                 <TabsTrigger value="reservations">Reservations</TabsTrigger>
+                <TabsTrigger value="deliveryBoys">Delivery Boys</TabsTrigger>
               </TabsList>
               
               <TabsContent value="orders">
@@ -747,6 +846,83 @@ const memoizedOrders = useMemo(() => {
                   </CardContent>
                 </Card>
               </TabsContent>
+
+              <TabsContent value="deliveryBoys" className="space-y-4">
+                <div className="flex justify-between items-center">
+                  <h2 className="text-2xl font-bold">Manage Delivery Boys</h2>
+                  <Button onClick={() => setShowDeliveryBoyForm(true)}>
+                    <UserPlus className="w-4 h-4 mr-2" />
+                    Add Delivery Boy
+                  </Button>
+                </div>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Delivery Boys List</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {isLoadingDeliveryBoys ? (
+                      <div className="flex justify-center p-4">
+                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900" />
+                      </div>
+                    ) : (
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Name</TableHead>
+                            <TableHead>Email</TableHead>
+                            <TableHead>Phone</TableHead>
+                            <TableHead>Status</TableHead>
+                            <TableHead>Rating</TableHead>
+                            <TableHead>Deliveries</TableHead>
+                            <TableHead>Actions</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {deliveryBoys.map((boy) => (
+                            <TableRow key={boy.id}>
+                              <TableCell>{boy.name}</TableCell>
+                              <TableCell>{boy.email}</TableCell>
+                              <TableCell>{boy.phone}</TableCell>
+                              <TableCell>
+                                <Badge
+                                  variant={
+                                      boy.status === 'active' 
+                                        ? 'default' 
+                                        : boy.status === 'inactive' 
+                                        ? 'secondary' 
+                                        : 'destructive'
+                                    }
+                                >
+                                  {boy.status.charAt(0).toUpperCase() + boy.status.slice(1)}
+                                </Badge>
+                              </TableCell>
+                              <TableCell>
+                                <div className="flex items-center">
+                                  <span className="mr-1">{boy.rating.toFixed(1)}</span>
+                                  <span className="text-yellow-400">★</span>
+                                </div>
+                              </TableCell>
+                              <TableCell>{boy.totalDeliveries}</TableCell>
+                              <TableCell>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => {
+                                    // Handle edit action
+                                  }}
+                                >
+                                  <Edit className="w-4 h-4" />
+                                </Button>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    )}
+                  </CardContent>
+                </Card>
+              </TabsContent>
             </Tabs>
           </div>
         </div>
@@ -849,7 +1025,7 @@ const memoizedOrders = useMemo(() => {
                     <SelectValue placeholder="Select delivery boy" />
                   </SelectTrigger>
                   <SelectContent>
-                    {deliveryBoys?.map((boy) => (
+                    {deliveryBoysList?.map((boy) => (
                       <SelectItem key={boy.id} value={boy.id}>
                         {boy.name} ({boy.email})
                       </SelectItem>
@@ -944,6 +1120,16 @@ const memoizedOrders = useMemo(() => {
               {loading ? 'Updating...' : 'Update Item'}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Delivery Boy Dialog */}
+      <Dialog open={showDeliveryBoyForm} onOpenChange={setShowDeliveryBoyForm}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>Add New Delivery Boy</DialogTitle>
+          </DialogHeader>
+          <DeliveryBoyForm onSuccess={handleDeliveryBoySuccess} />
         </DialogContent>
       </Dialog>
     </Layout>

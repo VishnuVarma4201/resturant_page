@@ -8,6 +8,7 @@ import { ReservationProvider } from "./context/ReservationContext";
 import { AdminProvider } from "./context/AdminContext";
 import { AuthProvider } from "./context/AuthContext";
 import { useAuth } from "./context/AuthContext";
+import { GoogleOAuthProvider } from '@react-oauth/google';
 import Index from "./pages/Index";
 import Contact from "./pages/Contact";
 import About from "./pages/About";
@@ -173,21 +174,23 @@ const AppRoutes = () => {
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <AuthProvider>
-        <AdminProvider>
-          <CartProvider>
-            <ReservationProvider>
-              <TooltipProvider>
-                <BrowserRouter>
-                  <Toaster />
-                  <Sonner />
-                  <AppRoutes />
-                </BrowserRouter>
-              </TooltipProvider>
-            </ReservationProvider>
-          </CartProvider>
-        </AdminProvider>
-      </AuthProvider>
+      <GoogleOAuthProvider clientId={import.meta.env.VITE_GOOGLE_CLIENT_ID}>
+        <AuthProvider>
+          <AdminProvider>
+            <CartProvider>
+              <ReservationProvider>
+                <TooltipProvider>
+                  <BrowserRouter>
+                    <Toaster />
+                    <Sonner />
+                    <AppRoutes />
+                  </BrowserRouter>
+                </TooltipProvider>
+              </ReservationProvider>
+            </CartProvider>
+          </AdminProvider>
+        </AuthProvider>
+      </GoogleOAuthProvider>
     </QueryClientProvider>
   );
 }

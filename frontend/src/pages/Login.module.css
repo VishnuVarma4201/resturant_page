@@ -1,0 +1,281 @@
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideInLeft {
+  from {
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes slideInRight {
+  from {
+    opacity: 0;
+    transform: translateX(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  10%,
+  30%,
+  50%,
+  70%,
+  90% {
+    transform: translateX(-2px);
+  }
+  20%,
+  40%,
+  60%,
+  80% {
+    transform: translateX(2px);
+  }
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes pulse {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.05);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes float {
+  0% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+  100% {
+    transform: translateY(0px);
+  }
+}
+
+@keyframes expandWidth {
+  from {
+    width: 0;
+  }
+  to {
+    width: 100%;
+  }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.6s ease-out;
+}
+
+.animate-fade-in-up {
+  animation: fadeInUp 0.6s ease-out;
+}
+
+.animate-slide-in-left {
+  animation: slideInLeft 0.6s ease-out;
+}
+
+.animate-slide-in-right {
+  animation: slideInRight 0.6s ease-out;
+}
+
+.animate-shake {
+  animation: shake 0.5s ease-in-out;
+}
+
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
+
+.animate-pulse {
+  animation: pulse 2s ease-in-out infinite;
+}
+
+.animate-float {
+  animation: float 3s ease-in-out infinite;
+}
+
+.animate-expand-width {
+  animation: expandWidth 0.3s ease-out;
+}
+
+/* Background image animation */
+@keyframes panBackground {
+  0% {
+    transform: scale(1.1) translate(0, 0);
+  }
+  25% {
+    transform: scale(1.12) translate(-5px, 5px);
+  }
+  50% {
+    transform: scale(1.1) translate(5px, -5px);
+  }
+  75% {
+    transform: scale(1.12) translate(5px, 5px);
+  }
+  100% {
+    transform: scale(1.1) translate(0, 0);
+  }
+}
+
+.animate-background-pan {
+  animation: panBackground 20s ease-in-out infinite;
+}
+
+/* Icon animations */
+@keyframes iconFloat {
+  0% {
+    transform: translateY(0) rotate(0);
+    opacity: 0.6;
+  }
+  50% {
+    transform: translateY(-15px) rotate(5deg);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(0) rotate(0);
+    opacity: 0.6;
+  }
+}
+
+.floating-icon {
+  animation: iconFloat 3s ease-in-out infinite;
+}
+
+/* Loading bar animation */
+@keyframes loadingBar {
+  0% {
+    width: 0%;
+    opacity: 1;
+  }
+  50% {
+    width: 100%;
+    opacity: 0.5;
+  }
+  100% {
+    width: 100%;
+    opacity: 0;
+  }
+}
+
+.loading-bar {
+  animation: loadingBar 2s ease-in-out;
+}
+
+/* Error message animation */
+@keyframes errorShake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  10%,
+  30%,
+  50%,
+  70%,
+  90% {
+    transform: translateX(-2px);
+  }
+  20%,
+  40%,
+  60%,
+  80% {
+    transform: translateX(2px);
+  }
+}
+
+.error-shake {
+  animation: errorShake 0.5s ease-in-out;
+}
+
+/* Social login buttons styles */
+.social-login-container {
+  margin-top: 2rem;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+}
+
+.divider {
+  width: 100%;
+  text-align: center;
+  border-bottom: 1px solid #e5e7eb;
+  line-height: 0.1em;
+  margin: 1.5rem 0;
+}
+
+.divider span {
+  background: #fff;
+  padding: 0 10px;
+  color: #6b7280;
+  font-size: 0.875rem;
+}
+
+.twitter-login-button {
+  width: 280px;
+  padding: 0.75rem 1.5rem;
+  border-radius: 9999px;
+  background-color: #1DA1F2;
+  color: white;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  transition: background-color 0.2s;
+}
+
+.twitter-login-button:hover {
+  background-color: #1a8cd8;
+}
+
+.twitter-login-button:disabled {
+  background-color: #9ca3af;
+  cursor: not-allowed;
+}
+
+/* Add loading animation for social login buttons */
+.loading {
+  opacity: 0.7;
+  cursor: wait;
+}
