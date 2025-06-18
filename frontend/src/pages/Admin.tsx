@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Layout from "@/components/Layout";
 import SectionHeading from "@/components/SectionHeading";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -20,6 +20,7 @@ import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 import DeliveryBoyForm from "@/components/forms/DeliveryBoyForm";
+import { getDeliveryBoys, updateDeliveryBoyStatus } from "@/services/adminService";
 
 // Fix Leaflet icon issue
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -53,30 +54,27 @@ const OrderMap = ({ location, popupContent }: MapProps) => (
 );
 
 interface DeliveryBoy {
-  id: string;
+  _id: string;
   name: string;
   email: string;
   phone: string;
-  status: 'active' | 'inactive' | 'suspended';
+  status: 'active' | 'inactive';
   isAvailable: boolean;
+  rating?: number;
+  totalRatings?: number;
   currentLocation?: {
-    coordinates: [number, number];
+    lat: number;
+    lng: number;
   };
-  rating: number;
-  totalDeliveries: number;
 }
 
 const Admin = () => {
-  const { menuItems, updateOrderStatus, assignDeliveryBoy, addMenuItem, updateMenuItem, removeMenuItem } = useAdmin();
+  const { updateOrderStatus, assignDeliveryBoy, addMenuItem, updateMenuItem, removeMenuItem } = useAdmin();
   const { user, fetchDeliveryBoys: fetchDeliveryBoysFromAuth } = useAuth();
   const { reservations = [], updateReservationStatus } = useReservation();
-  const [selectedOrder, setSelectedOrder] = useState(null);
-  const [selectedDeliveryBoy, setSelectedDeliveryBoy] = useState("");
-  const [showAssignDialog, setShowAssignDialog] = useState(false);
-  const [showAddItemDialog, setShowAddItemDialog] = useState(false);
-  const [showEditItemDialog, setShowEditItemDialog] = useState(false);
-  const [editingItem, setEditingItem] = useState<any>(null);
-  const [loading, setLoading] = useState(false);
+  const queryClient = useQueryClient();
+  
+  // State for menu items
   const [newItem, setNewItem] = useState({
     name: '',
     price: '',
@@ -84,9 +82,94 @@ const Admin = () => {
     image: '',
     category: 'Starters'
   });
+  const [showAddItemDialog, setShowAddItemDialog] = useState(false);
+  
+  // State for delivery boy assignment
+  const [selectedOrder, setSelectedOrder] = useState<any>(null);
+  const [selectedDeliveryBoy, setSelectedDeliveryBoy] = useState("");
+  const [showAssignDialog, setShowAssignDialog] = useState(false);
+  const [showEditItemDialog, setShowEditItemDialog] = useState(false);
+  const [editingItem, setEditingItem] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
   const [showDeliveryBoyForm, setShowDeliveryBoyForm] = useState(false);
   const [deliveryBoys, setDeliveryBoys] = useState<DeliveryBoy[]>([]);
   const [isLoadingDeliveryBoys, setIsLoadingDeliveryBoys] = useState(false);
+  const [deliveryBoyFilter, setDeliveryBoyFilter] = useState('all');
+  const [searchQuery, setSearchQuery] = useState('');
+
+  // Fetch menu items
+  const { data: menuItemsData = {}, isLoading: menuLoading } = useQuery({
+    queryKey: ['menuItems'],
+    queryFn: async () => {
+      const response = await fetch('http://localhost:5000/api/menu', {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        }
+      });
+      if (!response.ok) throw new Error('Failed to fetch menu items');
+      const data = await response.json();
+      // Group items by category
+      return data.reduce((acc: Record<string, any[]>, item: any) => {
+        if (!acc[item.category]) {
+          acc[item.category] = [];
+        }
+        acc[item.category].push(item);
+        return acc;
+      }, {});
+    }
+  });
+
+  // Fetch delivery boys with proper error handling and response parsing
+  const { data: deliveryBoysData = [], isLoading: deliveryBoysLoading } = useQuery({
+    queryKey: ['deliveryBoys'],
+    queryFn: async () => {
+      const response = await fetch('http://localhost:5000/api/delivery-boy', {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        }
+      });
+      
+      const data = await response.json();
+      
+      // If we get an array directly, use it
+      if (Array.isArray(data)) {
+        return data;
+      }
+      
+      // If we get an object with deliveryBoys property, use that
+      if (data.deliveryBoys) {
+        return data.deliveryBoys;
+      }
+      
+      // If we get an error message in the response
+      if (data.message && !response.ok) {
+        throw new Error(data.message);
+      }
+      
+      // Return empty array as fallback
+      return [];
+    },
+    refetchInterval: 30000 // Refetch every 30 seconds
+  });
+
+  // Fetch orders
+  const { data: ordersData = [], isLoading: ordersLoading } = useQuery({
+    queryKey: ['orders'],
+    queryFn: async () => {
+      const response = await fetch('http://localhost:5000/api/orders', {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        }
+      });
+      if (!response.ok) throw new Error('Failed to fetch orders');
+      return response.json();
+    },
+    refetchInterval: 30000, // Refetch every 30 seconds
+  });
+
+  const orders = ordersData || [];
+
+  // Filter delivery boys
 
   const handleDeliveryBoySuccess = useCallback(() => {
     setShowDeliveryBoyForm(false);
@@ -103,40 +186,9 @@ const Admin = () => {
       setDeliveryBoys(transformedDeliveryBoys);
     });
   }, [fetchDeliveryBoysFromAuth]);
-  const [deliveryBoyFilter, setDeliveryBoyFilter] = useState('all');
-  const [searchQuery, setSearchQuery] = useState('');
 
   // Add loading states for delivery boy actions
   const [updatingStatus, setUpdatingStatus] = useState<string | null>(null);
-
-  // Fetch orders using react-query
-  const { data: ordersData, isLoading: ordersLoading } = useQuery({
-    queryKey: ['orders'],
-    queryFn: async () => {
-      const response = await fetch('http://localhost:5000/api/orders', {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        }
-      });
-      if (!response.ok) throw new Error('Failed to fetch orders');
-      return response.json();
-    },
-    refetchInterval: 30000, // Refetch every 30 seconds
-  });
-
-  const orders = ordersData || [];
-
-  // Fetch delivery boys using react-query
-  const { data: deliveryBoysData } = useQuery({
-    queryKey: ['deliveryBoys'],
-    queryFn: async () => {
-      if (user?.role !== 'admin') return { deliveryBoys: [] };
-      return fetchDeliveryBoysFromAuth();
-    },
-    enabled: user?.role === 'admin'
-  });
-
-  const deliveryBoysList = deliveryBoysData?.deliveryBoys || [];
 
   // Filter orders by status
   const pendingOrders = orders.filter(order => order.status === 'placed');
@@ -338,12 +390,6 @@ const memoizedOrders = useMemo(() => {
 
   // Update the renderOrdersTable function
   const renderOrdersTable = useCallback((orders: OrderType[]) => {
-    if (ordersLoading) {
-      return (
-        <div className="text-center py-4">Loading orders...</div>
-      );
-    }
-
     if (!orders || orders.length === 0) {
       return (
         <div className="text-center py-4">No orders found</div>
@@ -363,106 +409,149 @@ const memoizedOrders = useMemo(() => {
             <TableHead>Actions</TableHead>
           </TableRow>
         </TableHeader>
-        <TableBody>
-          {orders.map((order) => (
-            <React.Fragment key={order._id}>
-              <TableRow>
-                <TableCell className="font-medium">
-                  #{order._id.slice(-6)}
-                  <div className="text-xs text-muted-foreground">
-                    {new Date(order.createdAt).toLocaleString()}
-                  </div>
-                </TableCell>
-                <TableCell>
-                  <div>{order.deliveryPhone}</div>
-                  <div className="text-xs text-muted-foreground">
-                    {`${order.deliveryAddress.street}, ${order.deliveryAddress.city}`}
-                  </div>
-                </TableCell>
-                <TableCell>
-                  <div>{order.items.length} items</div>
-                  <div className="text-xs text-muted-foreground">
-                    {order.items.map(item => `${item.quantity}x ${item.name}`).join(', ')}
-                  </div>
-                </TableCell>
-                <TableCell>
-                  <div>₹{order.totalAmount}</div>
-                  <div className="text-xs text-muted-foreground">
-                    Tax: ₹{order.tax}
-                  </div>
-                </TableCell>
-                <TableCell>
-                  <Badge variant={order.paymentStatus === "pending" ? "outline" : "default"}>
-                    {order.paymentMethod} - {order.paymentStatus}
-                  </Badge>
-                </TableCell>
-                <TableCell>
-                  <Badge
-                    className={
-                      order.status === "accepted" ? "bg-green-100 text-green-800" :
-                      order.status === "placed" ? "bg-yellow-100 text-yellow-800" :
-                      order.status === "assigned" ? "bg-blue-100 text-blue-800" :
-                      order.status === "delivered" ? "bg-purple-100 text-purple-800" :
-                      "bg-gray-100 text-gray-800"
-                    }
-                  >
-                    {order.status}
-                    {order.status === "assigned" && order.otp && 
-                      <span className="ml-1 text-xs">OTP: {order.otp}</span>
-                    }
-                  </Badge>
-                </TableCell>
-                <TableCell>
-                  {order.status === 'placed' && (
-                    <>                  <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleUpdateOrderStatus(order._id, 'accepted')}
-                      disabled={loading}
-                    >
-                      Accept
-                    </Button>
-                    <Button
-                      variant="destructive"
-                      size="sm"
-                      onClick={() => handleUpdateOrderStatus(order._id, 'cancelled')}
-                      disabled={loading}
-                    >
-                      Cancel
-                    </Button>
-                  </>
-                  )}
-                  {order.status === 'accepted' && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        setSelectedOrder(order);
-                        setShowAssignDialog(true);
-                      }}
-                      disabled={loading}
-                    >
-                      Assign Delivery
-                    </Button>
-                  )}
-                </TableCell>
-              </TableRow>
-              {(order.status === 'assigned' || order.status === 'accepted') && (
-                <TableRow>
-                  <TableCell colSpan={7} className="p-4">
-                    <OrderMap
-                      location={order.deliveryAddress.location.coordinates.reverse() as [number, number]}
-                      popupContent={`${order.deliveryAddress.street}, ${order.deliveryAddress.city}`}
-                    />
-                  </TableCell>
-                </TableRow>
+        <TableBody>{orders.map((order) => (
+          <TableRow key={order._id}>
+            <TableCell className="font-medium">
+              #{order._id.slice(-6)}
+              <div className="text-xs text-muted-foreground">
+                {new Date(order.createdAt).toLocaleString()}
+              </div>
+            </TableCell>
+            <TableCell>
+              <div>{order.deliveryPhone}</div>
+              <div className="text-xs text-muted-foreground">
+                {`${order.deliveryAddress.street}, ${order.deliveryAddress.city}`}
+              </div>
+            </TableCell>
+            <TableCell>
+              <div>{order.items.length} items</div>
+              <div className="text-xs text-muted-foreground">
+                {order.items.map(item => `${item.quantity}x ${item.name}`).join(', ')}
+              </div>
+            </TableCell>
+            <TableCell>
+              <div>₹{order.totalAmount}</div>
+              <div className="text-xs text-muted-foreground">
+                Tax: ₹{order.tax}
+              </div>
+            </TableCell>
+            <TableCell>
+              <Badge variant={order.paymentStatus === "pending" ? "outline" : "default"}>
+                {order.paymentMethod} - {order.paymentStatus}
+              </Badge>
+            </TableCell>
+            <TableCell>
+              <Badge
+                className={
+                  order.status === "accepted" ? "bg-green-100 text-green-800" :
+                  order.status === "placed" ? "bg-yellow-100 text-yellow-800" :
+                  order.status === "assigned" ? "bg-blue-100 text-blue-800" :
+                  order.status === "delivered" ? "bg-purple-100 text-purple-800" :
+                  "bg-gray-100 text-gray-800"
+                }
+              >
+                {order.status}
+                {order.status === "assigned" && order.otp && 
+                  <span className="ml-1 text-xs">OTP: {order.otp}</span>
+                }
+              </Badge>
+            </TableCell>
+            <TableCell>
+              {order.status === 'placed' && (
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleUpdateOrderStatus(order._id, 'accepted')}
+                    disabled={loading}
+                  >Accept</Button>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={() => handleUpdateOrderStatus(order._id, 'cancelled')}
+                    disabled={loading}
+                  >Cancel</Button>
+                </div>
               )}
-            </React.Fragment>
-          ))}
-        </TableBody>
+              {order.status === 'accepted' && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setSelectedOrder(order);
+                    setShowAssignDialog(true);
+                  }}
+                  disabled={loading}
+                >Assign Delivery</Button>
+              )}
+            </TableCell>
+          </TableRow>
+        ))}</TableBody>
       </Table>
     );
-  }, [ordersLoading]);
+  }, [loading, handleUpdateOrderStatus, setSelectedOrder, setShowAssignDialog]);
+
+  const renderMenuItemsTable = useCallback((category: string, menuItems: Record<string, MenuItem[]>) => {
+    return (
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead className="w-[80px]">Image</TableHead>
+            <TableHead>Name</TableHead>
+            <TableHead>Description</TableHead>
+            <TableHead>Price</TableHead>
+            <TableHead>Actions</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>{(menuItems[category] || [])
+          .sort((a, b) => getSortValue(b) - getSortValue(a))
+          .slice(0, 10)
+          .map((item) => (
+            <TableRow key={item._id || item.id}>
+              <TableCell>
+                <div className="w-12 h-12 rounded overflow-hidden">
+                  <img 
+                    src={item.image} 
+                    alt={item.name}
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+              </TableCell>
+              <TableCell className="font-medium">{item.name}</TableCell>
+              <TableCell>
+                <div className="max-w-xs truncate">{item.description}</div>
+              </TableCell>
+              <TableCell>{formatPrice(item.price)}</TableCell>
+              <TableCell>
+                <div className="flex items-center gap-2">
+                  <Button 
+                    variant="ghost" 
+                    size="sm"
+                    onClick={() => {
+                      setEditingItem(item);
+                      setShowEditItemDialog(true);
+                    }}
+                    disabled={loading}
+                  >
+                    <Edit className="h-4 w-4" />
+                    <span className="sr-only">Edit</span>
+                  </Button>
+                  <Button 
+                    variant="ghost" 
+                    size="sm"
+                    onClick={() => handleDeleteItem(item._id || item.id, item.category)}
+                    disabled={loading}
+                  >
+                    <XCircle className="h-4 w-4 text-red-500" />
+                    <span className="sr-only">Delete</span>
+                  </Button>
+                </div>
+              </TableCell>
+            </TableRow>
+          ))}</TableBody>
+      </Table>
+    );
+  }, [loading, handleDeleteItem, setEditingItem, setShowEditItemDialog]);
 
   // Define MenuItem type if not already imported
   type MenuItem = {
@@ -550,393 +639,208 @@ const memoizedOrders = useMemo(() => {
     }
   };
 
+  // Filter delivery boys based on search and filter
   const filteredDeliveryBoys = useMemo(() => {
-    return deliveryBoys.filter(db => {
-      const matchesFilter = deliveryBoyFilter === 'all' || db.status === deliveryBoyFilter;
-      const matchesSearch = searchQuery === '' || 
-        db.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        db.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        db.phone.includes(searchQuery);
-      return matchesFilter && matchesSearch;
+    return (deliveryBoysData || []).filter(boy => {
+      const matchesSearch = searchQuery === '' ||
+        boy.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        boy.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        boy.phone.includes(searchQuery);
+
+      const matchesFilter = 
+        deliveryBoyFilter === 'all' ||
+        (deliveryBoyFilter === 'active' && boy.status === 'active') ||
+        (deliveryBoyFilter === 'inactive' && boy.status === 'inactive');
+
+      return matchesSearch && matchesFilter;
     });
-  }, [deliveryBoys, deliveryBoyFilter, searchQuery]);
+  }, [deliveryBoysData, searchQuery, deliveryBoyFilter]);
+
+  // Update delivery boy status
+  const handleUpdateStatus = async (id: string, newStatus: 'active' | 'inactive') => {
+    setLoading(true);
+    try {
+      const response = await fetch(`http://localhost:5000/api/delivery-boy/${id}/status`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({ status: newStatus })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to update status');
+      }
+
+      queryClient.invalidateQueries({ queryKey: ['deliveryBoys'] });
+      toast.success(`Delivery boy ${newStatus === 'active' ? 'activated' : 'deactivated'} successfully`);
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to update status');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Render delivery boys table
+  const renderDeliveryBoysTable = useCallback(() => {
+    if (deliveryBoysLoading) {
+      return <div className="text-center py-4">Loading delivery boys...</div>;
+    }
+
+    if (!filteredDeliveryBoys?.length) {
+      return (
+        <div className="text-center py-4">
+          No delivery boys found
+          {searchQuery && <div className="text-sm text-muted-foreground">Clear search to see all delivery boys</div>}
+          {deliveryBoyFilter !== 'all' && 
+            <div className="text-sm text-muted-foreground">Clear filter to see all delivery boys</div>
+          }
+        </div>
+      );
+    }
+
+    return (
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Name</TableHead>
+            <TableHead>Contact</TableHead>
+            <TableHead>Status</TableHead>
+            <TableHead>Rating</TableHead>
+            <TableHead>Actions</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>{filteredDeliveryBoys.map(boy => (
+          <TableRow key={boy._id}>
+            <TableCell className="font-medium">{boy.name}</TableCell>
+            <TableCell>
+              <div>{boy.phone}</div>
+              <div className="text-xs text-muted-foreground">{boy.email}</div>
+            </TableCell>
+            <TableCell>
+              <Badge variant={boy.status === 'active' ? 'default' : 'secondary'}>
+                {boy.status}
+              </Badge>
+            </TableCell>
+            <TableCell>
+              {boy.rating?.toFixed(1) || '0.0'} ({boy.totalRatings || 0})
+            </TableCell>
+            <TableCell>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handleUpdateStatus(boy._id, boy.status === 'active' ? 'inactive' : 'active')}
+                disabled={loading}
+              >
+                {boy.status === 'active' ? 'Deactivate' : 'Activate'}
+              </Button>
+            </TableCell>
+          </TableRow>
+        ))}</TableBody>
+      </Table>
+    );
+  }, [filteredDeliveryBoys, deliveryBoysLoading, loading, handleUpdateStatus, searchQuery, deliveryBoyFilter]);
 
   return (
     <Layout>
-      <div className="min-h-screen pt-24 pb-16">
-        <div className="container-custom">
-          <SectionHeading
+      <div className="container mx-auto px-4 py-8">
+        <div className="space-y-8">
+          <SectionHeading 
             title="Admin Dashboard"
-            subtitle="Manage menu, orders, reservations and more"
+            subtitle="Manage orders, menu items, and delivery staff"
           />
-          
-          <div className="mt-8">
-            <Tabs defaultValue="orders" className="w-full">
-              <TabsList className="flex justify-center mb-8">
-                <TabsTrigger value="orders">Orders</TabsTrigger>
-                <TabsTrigger value="menu">Menu</TabsTrigger>
-                <TabsTrigger value="reservations">Reservations</TabsTrigger>
-                <TabsTrigger value="deliveryBoys">Delivery Boys</TabsTrigger>
-              </TabsList>
-              
-              <TabsContent value="orders">
-                <Card>
-                  <CardHeader>
-                    <div className="flex justify-between items-center">
-                      <CardTitle>Recent Orders</CardTitle>
-                      <div className="relative w-64">
-                        <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-                        <Input placeholder="Search orders..." className="pl-8" />
-                      </div>
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="overflow-x-auto">
-                      {renderOrdersTable(orders)}
-                    </div>
-                  </CardContent>
-                </Card>
-              </TabsContent>
-              
-              <TabsContent value="menu">
-                <Card>                  <CardHeader>                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                      <div>
-                        <CardTitle>Menu Items</CardTitle>
-                        <p className="text-sm text-muted-foreground mt-1">Showing 10 most recently added items</p>
-                      </div>
-                      <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 w-full sm:w-auto">
-                        <div className="relative w-full sm:w-64">
-                          <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-                          <Input placeholder="Search menu items..." className="pl-8 w-full" />
-                        </div>
-                        <Button className="w-full sm:w-auto" onClick={() => setShowAddItemDialog(true)}>
-                          <ShoppingCart className="h-4 w-4 mr-2" />
-                          Add Item
-                        </Button>
-                      </div>
-                    </div>
-                  </CardHeader>                  <CardContent>
-                    <Tabs defaultValue="all" className="w-full">                      <TabsList className="flex mb-6 overflow-x-auto pb-1 no-scrollbar">
-                        <TabsTrigger value="all" className="min-w-max">
-                          All Items
-                        </TabsTrigger>
-                        {['Starters', 'Main Course', 'Desserts', 'Beverages'].map((category) => (
-                          <TabsTrigger key={category} value={category} className="min-w-max">
-                            {category}
-                          </TabsTrigger>
-                        ))}
-                      </TabsList>
-                        <TabsContent value="all">
-                        <div className="overflow-x-auto">
-                          <Table>
-                            <TableHeader>
-                              <TableRow>
-                                <TableHead className="w-[80px]">Image</TableHead>
-                                <TableHead>Name</TableHead>
-                                <TableHead>Description</TableHead>
-                                <TableHead>Price</TableHead>
-                                <TableHead>Actions</TableHead>
-                              </TableRow>
-                            </TableHeader>                            <TableBody>                              {Object.values(menuItems).flat()
-                                .sort((a, b) => {
-                                  return getSortValue(b) - getSortValue(a);
-                                })
-                                .slice(0, 10)
-                                .map((item) => (
-                                <TableRow key={item._id || item.id}>
-                                  <TableCell>
-                                    <div className="w-12 h-12 rounded overflow-hidden">
-                                      <img 
-                                        src={item.image} 
-                                        alt={item.name}
-                                        className="w-full h-full object-cover"
-                                      />
-                                    </div>
-                                  </TableCell>
-                                  <TableCell className="font-medium">{item.name}</TableCell>
-                                  <TableCell>
-                                    <div className="max-w-xs truncate">{item.description}</div>
-                                  </TableCell>
-                                  <TableCell>{formatPrice(item.price)}</TableCell>
-                                  <TableCell>
-                                    <div className="flex items-center gap-2">
-                                      <Button 
-                                        variant="ghost" 
-                                        size="sm"
-                                        onClick={() => {
-                                          setEditingItem(item);
-                                          setShowEditItemDialog(true);
-                                        }}
-                                        disabled={loading}
-                                      >
-                                        <Edit className="h-4 w-4" />
-                                        <span className="sr-only">Edit</span>
-                                      </Button>
-                                      <Button 
-                                        variant="ghost" 
-                                        size="sm"
-                                        onClick={() => handleDeleteItem(item._id || item.id, item.category)}
-                                        disabled={loading}
-                                      >
-                                        <XCircle className="h-4 w-4 text-red-500" />
-                                        <span className="sr-only">Delete</span>
-                                      </Button>
-                                    </div>
-                                  </TableCell>
-                                </TableRow>
-                              ))}
-                            </TableBody>
-                          </Table>
-                        </div>
-                      </TabsContent>
-                      
-                      {['Starters', 'Main Course', 'Desserts', 'Beverages'].map((category) => (
-                        <TabsContent key={category} value={category}>
-                          <div className="overflow-x-auto">
-                            <Table>
-                              <TableHeader>
-                                <TableRow>
-                                  <TableHead className="w-[80px]">Image</TableHead>
-                                  <TableHead>Name</TableHead>
-                                  <TableHead>Description</TableHead>
-                                  <TableHead>Price</TableHead>
-                                  <TableHead>Actions</TableHead>
-                                </TableRow>
-                              </TableHeader>                              <TableBody>                                {(menuItems[category] || [])
-                                  .sort((a, b) => {
-                                    return getSortValue(b) - getSortValue(a);
-                                  })
-                                  .slice(0, 10)
-                                  .map((item) => (
-                                  <TableRow key={item._id || item.id}>
-                                    <TableCell>
-                                      <div className="w-12 h-12 rounded overflow-hidden">
-                                        <img 
-                                          src={item.image} 
-                                          alt={item.name}
-                                          className="w-full h-full object-cover"
-                                        />
-                                      </div>
-                                    </TableCell>
-                                    <TableCell className="font-medium">{item.name}</TableCell>
-                                    <TableCell>
-                                      <div className="max-w-xs truncate">{item.description}</div>
-                                    </TableCell>
-                                    <TableCell>{formatPrice(item.price)}</TableCell>
-                                    <TableCell>
-                                      <div className="flex items-center gap-2">
-                                        <Button 
-                                          variant="ghost" 
-                                          size="sm"
-                                          onClick={() => {
-                                            setEditingItem(item);
-                                            setShowEditItemDialog(true);
-                                          }}
-                                          disabled={loading}
-                                        >
-                                          <Edit className="h-4 w-4" />
-                                          <span className="sr-only">Edit</span>
-                                        </Button>
-                                        <Button 
-                                          variant="ghost" 
-                                          size="sm"
-                                          onClick={() => handleDeleteItem(item._id || item.id, item.category)}
-                                          disabled={loading}
-                                        >
-                                          <XCircle className="h-4 w-4 text-red-500" />
-                                          <span className="sr-only">Delete</span>
-                                        </Button>
-                                      </div>
-                                    </TableCell>
-                                  </TableRow>
-                                ))}
-                              </TableBody>
-                            </Table>
-                          </div>
-                        </TabsContent>
-                      ))}
-                    </Tabs>
-                  </CardContent>
-                </Card>
-              </TabsContent>
-              
-              <TabsContent value="reservations">
-                <Card>
-                  <CardHeader>
-                    <div className="flex justify-between items-center">
-                      <CardTitle>Reservations</CardTitle>
-                      <div className="relative w-64">
-                        <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-                        <Input placeholder="Search reservations..." className="pl-8" />
-                      </div>
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="overflow-x-auto">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>Name</TableHead>
-                            <TableHead>Email</TableHead>
-                            <TableHead>Date</TableHead>
-                            <TableHead>Time</TableHead>
-                            <TableHead>Party Size</TableHead>
-                            <TableHead>Table</TableHead>
-                            <TableHead>Status</TableHead>
-                            <TableHead>Actions</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>                          {reservations && reservations.length > 0 ? (
-                            reservations.map((reservation) => (
-                              <TableRow key={reservation._id || reservation.id}>
-                                <TableCell className="font-medium">{reservation.name}</TableCell>
-                                <TableCell>{reservation.email}</TableCell>
-                                <TableCell>{formatDate(reservation.date)}</TableCell>
-                                <TableCell>{reservation.time}</TableCell>
-                                <TableCell>{reservation.partySize}</TableCell>
-                                <TableCell>{reservation.tableNumber || "—"}</TableCell>
-                                <TableCell>
-                                  <Badge className={
-                                    reservation.status === "approved" 
-                                      ? "bg-green-100 text-green-800 hover:bg-green-100" 
-                                      : reservation.status === "rejected" 
-                                      ? "bg-red-100 text-red-800 hover:bg-red-100" 
-                                      : "bg-yellow-100 text-yellow-800 hover:bg-yellow-100"
-                                  }>
-                                    {reservation.status}
-                                  </Badge>
-                                </TableCell>
-                                <TableCell>
-                                  <div className="flex items-center gap-2">
-                                    {reservation.status === "pending" && (
-                                      <>
-                                        <Button 
-                                          variant="outline" 
-                                          size="sm"
-                                          onClick={() => updateReservationStatus(reservation._id || reservation.id, "approved")}
-                                        >
-                                          <Check className="h-4 w-4 mr-1" />
-                                          Approve
-                                        </Button>
-                                        <Button 
-                                          variant="outline" 
-                                          size="sm"
-                                          onClick={() => updateReservationStatus(reservation._id || reservation.id, "rejected")}
-                                          className="text-red-600 hover:text-red-700"
-                                        >
-                                          <XCircle className="h-4 w-4 mr-1" />
-                                          Reject
-                                        </Button>
-                                      </>
-                                    )}
-                                  </div>
-                                </TableCell>
-                              </TableRow>
-                            ))
-                          ) : (
-                            <TableRow>
-                              <TableCell colSpan={8} className="text-center py-4">
-                                No reservations found
-                              </TableCell>
-                            </TableRow>
-                          )}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  </CardContent>
-                </Card>
-              </TabsContent>
 
-              <TabsContent value="deliveryBoys" className="space-y-4">
-                <div className="flex justify-between items-center">
-                  <h2 className="text-2xl font-bold">Manage Delivery Boys</h2>
-                  <Button onClick={() => setShowDeliveryBoyForm(true)}>
-                    <UserPlus className="w-4 h-4 mr-2" />
-                    Add Delivery Boy
+          <Tabs defaultValue="orders" className="w-full">
+            <TabsList>
+              <TabsTrigger value="orders">Orders</TabsTrigger>
+              <TabsTrigger value="menu">Menu Items</TabsTrigger>
+              <TabsTrigger value="deliveryBoys">Delivery Boys</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="orders">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Orders Management</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {ordersLoading ? (
+                    <div className="text-center py-4">Loading orders...</div>
+                  ) : (
+                    renderOrdersTable(ordersData)
+                  )}
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            <TabsContent value="menu">
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between">
+                  <CardTitle>Menu Items</CardTitle>
+                  <Button onClick={() => setShowAddItemDialog(true)}>
+                    Add New Item
                   </Button>
-                </div>
-
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Delivery Boys List</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    {isLoadingDeliveryBoys ? (
-                      <div className="flex justify-center p-4">
-                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900" />
+                </CardHeader>
+                <CardContent>
+                  {menuLoading ? (
+                    <div className="text-center py-4">Loading menu items...</div>
+                  ) : !Object.keys(menuItemsData).length ? (
+                    <div className="text-center py-4">No menu items found</div>
+                  ) : (
+                    Object.keys(menuItemsData).map(category => (
+                      <div key={category} className="mb-8">
+                        <h3 className="text-lg font-semibold mb-4">{category}</h3>
+                        {renderMenuItemsTable(category, menuItemsData)}
                       </div>
-                    ) : (
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>Name</TableHead>
-                            <TableHead>Email</TableHead>
-                            <TableHead>Phone</TableHead>
-                            <TableHead>Status</TableHead>
-                            <TableHead>Rating</TableHead>
-                            <TableHead>Deliveries</TableHead>
-                            <TableHead>Actions</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {deliveryBoys.map((boy) => (
-                            <TableRow key={boy.id}>
-                              <TableCell>{boy.name}</TableCell>
-                              <TableCell>{boy.email}</TableCell>
-                              <TableCell>{boy.phone}</TableCell>
-                              <TableCell>
-                                <Badge
-                                  variant={
-                                      boy.status === 'active' 
-                                        ? 'default' 
-                                        : boy.status === 'inactive' 
-                                        ? 'secondary' 
-                                        : 'destructive'
-                                    }
-                                >
-                                  {boy.status.charAt(0).toUpperCase() + boy.status.slice(1)}
-                                </Badge>
-                              </TableCell>
-                              <TableCell>
-                                <div className="flex items-center">
-                                  <span className="mr-1">{boy.rating.toFixed(1)}</span>
-                                  <span className="text-yellow-400">★</span>
-                                </div>
-                              </TableCell>
-                              <TableCell>{boy.totalDeliveries}</TableCell>
-                              <TableCell>
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => {
-                                    // Handle edit action
-                                  }}
-                                >
-                                  <Edit className="w-4 h-4" />
-                                </Button>
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    )}
-                  </CardContent>
-                </Card>
-              </TabsContent>
-            </Tabs>
-          </div>
+                    ))
+                  )}
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            <TabsContent value="deliveryBoys">
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between">
+                  <CardTitle>Delivery Boys</CardTitle>
+                  <Button onClick={() => setShowDeliveryBoyForm(true)}>
+                    Add New Delivery Boy
+                  </Button>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex gap-4 mb-4">
+                    <Input
+                      placeholder="Search delivery boys..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="max-w-sm"
+                    />
+                    <Select value={deliveryBoyFilter} onValueChange={setDeliveryBoyFilter}>
+                      <SelectTrigger className="w-[180px]">
+                        <SelectValue placeholder="Filter by status" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All</SelectItem>
+                        <SelectItem value="active">Active</SelectItem>
+                        <SelectItem value="inactive">Inactive</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {renderDeliveryBoysTable()}
+                </CardContent>
+              </Card>
+            </TabsContent>
+          </Tabs>
         </div>
-      </div>      {/* Add Menu Item Dialog */}
+      </div>
+
+      {/* Add Menu Item Dialog */}
       <Dialog open={showAddItemDialog} onOpenChange={setShowAddItemDialog}>
-        <DialogContent className="sm:max-w-[425px]" aria-describedby="add-menu-item-description">
+        <DialogContent>
           <DialogHeader>
             <DialogTitle>Add New Menu Item</DialogTitle>
-            <p id="add-menu-item-description" className="text-sm text-muted-foreground">
-              Fill in the details below to add a new item to the menu.
-            </p>
           </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="grid grid-cols-4 items-center gap-4">
+          <form onSubmit={handleAddItem} className="space-y-4">
+            <div className="grid grid-cols-4 gap-4">
               <label htmlFor="name" className="text-right">Name</label>
               <Input
                 id="name"
@@ -945,7 +849,7 @@ const memoizedOrders = useMemo(() => {
                 className="col-span-3"
               />
             </div>
-            <div className="grid grid-cols-4 items-center gap-4">
+            <div className="grid grid-cols-4 gap-4">
               <label htmlFor="price" className="text-right">Price</label>
               <Input
                 id="price"
@@ -955,7 +859,7 @@ const memoizedOrders = useMemo(() => {
                 className="col-span-3"
               />
             </div>
-            <div className="grid grid-cols-4 items-center gap-4">
+            <div className="grid grid-cols-4 gap-4">
               <label htmlFor="description" className="text-right">Description</label>
               <Input
                 id="description"
@@ -964,7 +868,7 @@ const memoizedOrders = useMemo(() => {
                 className="col-span-3"
               />
             </div>
-            <div className="grid grid-cols-4 items-center gap-4">
+            <div className="grid grid-cols-4 gap-4">
               <label htmlFor="image" className="text-right">Image URL</label>
               <Input
                 id="image"
@@ -973,7 +877,7 @@ const memoizedOrders = useMemo(() => {
                 className="col-span-3"
               />
             </div>
-            <div className="grid grid-cols-4 items-center gap-4">
+            <div className="grid grid-cols-4 gap-4">
               <label htmlFor="category" className="text-right">Category</label>
               <Select 
                 value={newItem.category}
@@ -990,136 +894,15 @@ const memoizedOrders = useMemo(() => {
                 </SelectContent>
               </Select>
             </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowAddItemDialog(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handleAddItem} disabled={loading}>
-              Add Item
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Assign Delivery Boy Dialog */}
-      <Dialog open={showAssignDialog} onOpenChange={setShowAssignDialog}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Assign Delivery Boy</DialogTitle>
-          </DialogHeader>
-          <div className="py-4">
-            <div className="space-y-4">
-              <div>                <p className="text-sm font-medium mb-1">Order:</p>
-                <p className="text-gray-700">#{selectedOrder?._id}</p>
-              </div>
-              
-              <div>
-                <p className="text-sm font-medium mb-1">Customer:</p>
-                <p className="text-gray-700">{selectedOrder?.email}</p>
-              </div>
-              
-              <div className="space-y-2">
-                <p className="text-sm font-medium mb-1">Select Delivery Boy:</p>                <Select value={selectedDeliveryBoy} onValueChange={setSelectedDeliveryBoy}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select delivery boy" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {deliveryBoysList?.map((boy) => (
-                      <SelectItem key={boy.id} value={boy.id}>
-                        {boy.name} ({boy.email})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              
-              <div className="flex justify-end gap-2 pt-4">
-                <Button variant="outline" onClick={() => setShowAssignDialog(false)}>
-                  Cancel
-                </Button>
-                <Button onClick={handleAssignDeliveryBoy} disabled={!selectedDeliveryBoy}>
-                  Assign
-                </Button>
-              </div>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Edit Menu Item Dialog */}
-      <Dialog open={showEditItemDialog} onOpenChange={setShowEditItemDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Edit Menu Item</DialogTitle>
-            <p className="text-sm text-gray-600">
-              Update the details below to modify this menu item.
-            </p>
-          </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="grid grid-cols-4 items-center gap-4">
-              <label htmlFor="edit-name" className="text-right">Name</label>
-              <Input
-                id="edit-name"
-                value={editingItem?.name || ''}
-                onChange={(e) => setEditingItem(prev => ({ ...prev, name: e.target.value }))}
-                className="col-span-3"
-              />
-            </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <label htmlFor="edit-price" className="text-right">Price</label>
-              <Input
-                id="edit-price"
-                type="number"
-                value={editingItem?.price || ''}
-                onChange={(e) => setEditingItem(prev => ({ ...prev, price: e.target.value }))}
-                className="col-span-3"
-              />
-            </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <label htmlFor="edit-description" className="text-right">Description</label>
-              <Input
-                id="edit-description"
-                value={editingItem?.description || ''}
-                onChange={(e) => setEditingItem(prev => ({ ...prev, description: e.target.value }))}
-                className="col-span-3"
-              />
-            </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <label htmlFor="edit-image" className="text-right">Image URL</label>
-              <Input
-                id="edit-image"
-                value={editingItem?.image || ''}
-                onChange={(e) => setEditingItem(prev => ({ ...prev, image: e.target.value }))}
-                className="col-span-3"
-              />
-            </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <label htmlFor="edit-category" className="text-right">Category</label>
-              <Select
-                value={editingItem?.category || ''}
-                onValueChange={(value) => setEditingItem(prev => ({ ...prev, category: value }))}
-              >
-                <SelectTrigger className="col-span-3">
-                  <SelectValue placeholder="Select category" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Starters">Starters</SelectItem>
-                  <SelectItem value="Main Course">Main Course</SelectItem>
-                  <SelectItem value="Desserts">Desserts</SelectItem>
-                  <SelectItem value="Beverages">Beverages</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowEditItemDialog(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handleEditItem} disabled={loading}>
-              {loading ? 'Updating...' : 'Update Item'}
-            </Button>
-          </DialogFooter>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setShowAddItemDialog(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={loading}>
+                Add Item
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
 
@@ -1130,6 +913,37 @@ const memoizedOrders = useMemo(() => {
             <DialogTitle>Add New Delivery Boy</DialogTitle>
           </DialogHeader>
           <DeliveryBoyForm onSuccess={handleDeliveryBoySuccess} />
+        </DialogContent>
+      </Dialog>
+
+      {/* Assign Delivery Boy Dialog */}
+      <Dialog open={showAssignDialog} onOpenChange={setShowAssignDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Assign Delivery Boy</DialogTitle>
+          </DialogHeader>
+          <Select value={selectedDeliveryBoy} onValueChange={setSelectedDeliveryBoy}>
+            <SelectTrigger>
+              <SelectValue placeholder="Select a delivery boy" />
+            </SelectTrigger>
+            <SelectContent>
+              {deliveryBoysData
+                .filter(boy => boy.status === 'active' && boy.isAvailable)
+                .map(boy => (
+                  <SelectItem key={boy._id} value={boy._id}>
+                    {boy.name} - {boy.phone}
+                  </SelectItem>
+                ))}
+            </SelectContent>
+          </Select>
+          <DialogFooter>
+            <Button
+              onClick={handleAssignDeliveryBoy}
+              disabled={loading || !selectedDeliveryBoy}
+            >
+              Assign
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </Layout>

@@ -30,3 +30,35 @@ export const getAdminOrders = async () => {
     throw error.response?.data?.message || 'Failed to fetch orders';
   }
 };
+
+export const getDeliveryBoys = async () => {
+  try {
+    const response = await api.get('/delivery-boy');
+    return response.data;
+  } catch (error: any) {
+    throw error.response?.data?.message || 'Failed to fetch delivery boys';
+  }
+};
+
+export const addDeliveryBoy = async (data: {
+  name: string;
+  email: string;
+  phone: string;
+  password: string;
+}) => {
+  try {
+    const response = await api.post('/delivery-boy/register', data);
+    return response.data;
+  } catch (error: any) {
+    throw error.response?.data?.message || 'Failed to add delivery boy';
+  }
+};
+
+export const updateDeliveryBoyStatus = async (id: string, status: string) => {
+  try {
+    const response = await api.put(`/delivery-boy/${id}/status`, { status });
+    return response.data;
+  } catch (error: any) {
+    throw error.response?.data?.message || 'Failed to update delivery boy status';
+  }
+};

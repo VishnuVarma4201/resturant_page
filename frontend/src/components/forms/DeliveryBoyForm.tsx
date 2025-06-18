@@ -1,295 +1,162 @@
-import { useState } from 'react';
-import { toast } from 'sonner';
+import React from 'react';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import * as z from 'zod';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from '@/components/ui/form';
+import { toast } from 'sonner';
 import { User, Mail, Lock, Phone, Loader2 } from 'lucide-react';
-import axios from 'axios';
 import { cn } from '@/lib/utils';
 
-interface DeliveryBoyFormData {
-  name: string;
-  email: string;
-  phone: string;
-  password: string;
-}
+const formSchema = z.object({
+  name: z.string().min(2, 'Name must be at least 2 characters'),
+  email: z.string().email('Invalid email address'),
+  phone: z.string().min(10, 'Phone number must be at least 10 digits'),
+  password: z.string().min(6, 'Password must be at least 6 characters'),
+});
+
+type FormData = z.infer<typeof formSchema>;
 
 interface DeliveryBoyFormProps {
   onSuccess?: () => void;
   className?: string;
 }
 
-const DeliveryBoyForm = ({ onSuccess, className }: DeliveryBoyFormProps) => {
-  const [loading, setLoading] = useState(false);
-  const [formData, setFormData] = useState<DeliveryBoyFormData>({
-    name: '',
-    email: '',
-    phone: '',
-    password: ''
+export default function DeliveryBoyForm({ onSuccess, className }: DeliveryBoyFormProps) {
+  const form = useForm<FormData>({
+    resolver: zodResolver(formSchema),
+    defaultValues: {
+      name: '',
+      email: '',
+      phone: '',
+      password: '',
+    },
   });
 
-  const [errors, setErrors] = useState<Partial<DeliveryBoyFormData>>({});
-  
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!validateForm()) {
-      toast.error("Please fix the form errors before submitting");
-      return;
-    }
-
-    // Clean and prepare form data
-    const cleanedFormData = {
-      ...formData,
-      name: formData.name.trim(),
-      email: formData.email.toLowerCase().trim(),
-      phone: formData.phone.replace(/\D/g, ''),
-      password: formData.password
-    };
-
-    setLoading(true);
+  async function onSubmit(data: FormData) {
     try {
-      const response = await axios.post('http://localhost:5000/api/delivery-boy/register', cleanedFormData, {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        throw new Error('No authentication token found');
+      }
+
+      const response = await fetch('http://localhost:5000/api/delivery-boy/register', {
+        method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        }
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify(data),
       });
-      
-      if (response.data) {
-        toast.success("Delivery boy account created successfully!");
-        setFormData({
-          name: '',
-          email: '',
-          phone: '',
-          password: ''
-        });
-        onSuccess?.();
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || 'Failed to add delivery boy');
       }
+
+      toast.success('Delivery boy added successfully');
+      form.reset();
+      onSuccess?.();
     } catch (error: any) {
-      console.error('Error creating delivery boy:', error.response?.data || error.message);
-      const errorMessage = error.response?.data?.message || "Failed to create delivery boy account";
-      toast.error(errorMessage);
-      
-      // Handle validation errors
-      if (error.response?.data?.required) {
-        const newErrors: Partial<DeliveryBoyFormData> = {};
-        error.response.data.required.forEach((field: string) => {
-          newErrors[field as keyof DeliveryBoyFormData] = `${field} is required`;
-        });
-        setErrors(newErrors);
-      }
-      
-      // Handle other specific errors
-      if (error.response?.data?.errors) {
-        setErrors(error.response.data.errors);
-      }
-    } finally {
-      setLoading(false);
+      console.error('Error creating delivery boy:', error);
+      toast.error(error.message || 'Failed to add delivery boy');
     }
-  };
-
-  const validateForm = () => {
-    const newErrors: Partial<DeliveryBoyFormData> = {};
-    let isValid = true;
-
-    if (!formData.name.trim()) {
-      newErrors.name = 'Name is required';
-      isValid = false;
-    }
-
-    if (!formData.email) {
-      newErrors.email = 'Email is required';
-      isValid = false;
-    } else if (!/\S+@\S+\.\S+/.test(formData.email)) {
-      newErrors.email = 'Please enter a valid email address';
-      isValid = false;
-    }
-
-    if (!formData.phone) {
-      newErrors.phone = 'Phone number is required';
-      isValid = false;
-    } else {
-      // Remove any non-digit characters
-      const cleanPhone = formData.phone.replace(/\D/g, '');
-      if (cleanPhone.length !== 10) {
-        newErrors.phone = 'Phone number must be 10 digits';
-        isValid = false;
-      }
-    }
-
-    if (!formData.password) {
-      newErrors.password = 'Password is required';
-      isValid = false;
-    } else if (formData.password.length < 6) {
-      newErrors.password = 'Password must be at least 6 characters long';
-      isValid = false;
-    }
-
-    setErrors(newErrors);
-    return isValid;
-  };
-
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = e.target;
-    
-    // Format phone number if the field is phone
-    if (name === 'phone') {
-      const digits = value.replace(/\D/g, '');
-      if (digits.length <= 10) {
-        const parts = digits.match(/(\d{0,3})(\d{0,3})(\d{0,4})/);
-        const formatted = !parts ? '' :
-          (!parts[2] ? parts[1] : // only first group
-            !parts[3] ? `${parts[1]}-${parts[2]}` : // first and second
-            `${parts[1]}-${parts[2]}-${parts[3]}`); // all parts
-        setFormData(prev => ({
-          ...prev,
-          [name]: formatted
-        }));
-      }
-    } else {
-      setFormData(prev => ({
-        ...prev,
-        [name]: value
-      }));
-    }
-
-    // Clear error when user starts typing
-    if (errors[name as keyof DeliveryBoyFormData]) {
-      setErrors(prev => ({
-        ...prev,
-        [name]: ''
-      }));
-    }
-  };
+  }
 
   return (
-    <form onSubmit={handleSubmit} className={cn("space-y-4 w-full", className)}>
-      <div className="space-y-4">
-        <div className="space-y-2">
-          <Label htmlFor="name">Full Name</Label>
-          <div className="relative">
-            <User className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
-            <Input
-              id="name"
-              name="name"
-              type="text"
-              placeholder="Enter full name"
-              value={formData.name}
-              onChange={handleChange}
-              disabled={loading}
-              className={cn(
-                "pl-10",
-                errors.name && "border-red-500 focus-visible:ring-red-500"
-              )}
-              aria-invalid={!!errors.name}
-              aria-describedby={errors.name ? "name-error" : undefined}
-            />
-          </div>
-          {errors.name && (
-            <p id="name-error" className="text-sm text-red-500">
-              {errors.name}
-            </p>
+    <Form {...form}>
+      <form onSubmit={form.handleSubmit(onSubmit)} className={cn('space-y-4', className)}>
+        <FormField
+          control={form.control}
+          name="name"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Name</FormLabel>
+              <FormControl>
+                <div className="relative">
+                  <User className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+                  <Input className="pl-9" placeholder="Enter name" {...field} />
+                </div>
+              </FormControl>
+              <FormMessage />
+            </FormItem>
           )}
-        </div>
+        />
 
-        <div className="space-y-2">
-          <Label htmlFor="email">Email Address</Label>
-          <div className="relative">
-            <Mail className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
-            <Input
-              id="email"
-              name="email"
-              type="email"
-              placeholder="Enter email address"
-              value={formData.email}
-              onChange={handleChange}
-              disabled={loading}
-              className={cn(
-                "pl-10",
-                errors.email && "border-red-500 focus-visible:ring-red-500"
-              )}
-              aria-invalid={!!errors.email}
-              aria-describedby={errors.email ? "email-error" : undefined}
-            />
-          </div>
-          {errors.email && (
-            <p id="email-error" className="text-sm text-red-500">
-              {errors.email}
-            </p>
+        <FormField
+          control={form.control}
+          name="email"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Email</FormLabel>
+              <FormControl>
+                <div className="relative">
+                  <Mail className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+                  <Input className="pl-9" type="email" placeholder="Enter email" {...field} />
+                </div>
+              </FormControl>
+              <FormMessage />
+            </FormItem>
           )}
-        </div>
+        />
 
-        <div className="space-y-2">
-          <Label htmlFor="phone">Phone Number</Label>
-          <div className="relative">
-            <Phone className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
-            <Input
-              id="phone"
-              name="phone"
-              type="tel"
-              placeholder="Enter phone number"
-              value={formData.phone}
-              onChange={handleChange}
-              disabled={loading}
-              className={cn(
-                "pl-10",
-                errors.phone && "border-red-500 focus-visible:ring-red-500"
-              )}
-              aria-invalid={!!errors.phone}
-              aria-describedby={errors.phone ? "phone-error" : undefined}
-            />
-          </div>
-          {errors.phone && (
-            <p id="phone-error" className="text-sm text-red-500">
-              {errors.phone}
-            </p>
+        <FormField
+          control={form.control}
+          name="phone"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Phone</FormLabel>
+              <FormControl>
+                <div className="relative">
+                  <Phone className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+                  <Input className="pl-9" type="tel" placeholder="Enter phone number" {...field} />
+                </div>
+              </FormControl>
+              <FormMessage />
+            </FormItem>
           )}
-        </div>
+        />
 
-        <div className="space-y-2">
-          <Label htmlFor="password">Password</Label>
-          <div className="relative">
-            <Lock className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
-            <Input
-              id="password"
-              name="password"
-              type="password"
-              placeholder="Create password"
-              value={formData.password}
-              onChange={handleChange}
-              disabled={loading}
-              className={cn(
-                "pl-10",
-                errors.password && "border-red-500 focus-visible:ring-red-500"
-              )}
-              aria-invalid={!!errors.password}
-              aria-describedby={errors.password ? "password-error" : undefined}
-            />
-          </div>
-          {errors.password && (
-            <p id="password-error" className="text-sm text-red-500">
-              {errors.password}
-            </p>
+        <FormField
+          control={form.control}
+          name="password"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Password</FormLabel>
+              <FormControl>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+                  <Input className="pl-9" type="password" placeholder="Enter password" {...field} />
+                </div>
+              </FormControl>
+              <FormMessage />
+            </FormItem>
           )}
-        </div>
-      </div>
+        />
 
-      <Button
-        type="submit"
-        className="w-full"
-        disabled={loading}
-      >
-        {loading ? (
-          <div className="flex items-center justify-center">
-            <Loader2 className="h-4 w-4 animate-spin mr-2" />
-            <span>Creating Account...</span>
-          </div>
-        ) : (
-          <span>Create Delivery Boy Account</span>
-        )}
-      </Button>
-    </form>
+        <Button 
+          type="submit" 
+          className="w-full"
+          disabled={form.formState.isSubmitting}
+        >
+          {form.formState.isSubmitting ? (
+            <div className="flex items-center justify-center">
+              <Loader2 className="h-4 w-4 animate-spin mr-2" />
+              <span>Adding...</span>
+            </div>
+          ) : (
+            "Add Delivery Boy"
+          )}
+        </Button>
+      </form>
+    </Form>
   );
-};
-
-export default DeliveryBoyForm;
+}

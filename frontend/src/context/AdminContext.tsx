@@ -31,6 +31,16 @@ interface Stats {
   pendingOrders: number;
 }
 
+interface DeliveryBoy {
+  _id: string;
+  name: string;
+  email: string;
+  phone: string;
+  status: string;
+  rating: number;
+  totalDeliveries: number;
+}
+
 interface AdminContextType {
   menuItems: Record<string, MenuItem[]>;
   addMenuItem: (item: Omit<MenuItem, "id">) => Promise<any>;
@@ -41,6 +51,9 @@ interface AdminContextType {
   stats: Stats;
   updateOrderStatus: (orderId: string, status: string) => Promise<void>;
   assignDeliveryBoy: (orderId: string, deliveryBoyId: string) => Promise<void>;
+  deliveryBoys: DeliveryBoy[];
+  fetchDeliveryBoys: () => Promise<void>;
+  updateDeliveryBoyStatus: (id: string, status: string) => Promise<void>;
 }
 
 const AdminContext = createContext<AdminContextType | undefined>(undefined);
@@ -266,6 +279,54 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   };
 
+  const [deliveryBoys, setDeliveryBoys] = useState<DeliveryBoy[]>([]);
+
+  const fetchDeliveryBoys = async () => {
+    try {
+      const response = await axios.get('http://localhost:5000/api/delivery-boy', {
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+      });
+      setDeliveryBoys(response.data);
+    } catch (error: any) {
+      console.error('Error fetching delivery boys:', error);
+      toast.error(error.response?.data?.message || 'Failed to fetch delivery boys');
+    }
+  };
+
+  // Add this inside useEffect in the AdminProvider:
+  useEffect(() => {
+    fetchDeliveryBoys();
+  }, []);
+
+  // Add to the context value:
+  const value = {
+    menuItems,
+    addMenuItem,
+    updateMenuItem,
+    removeMenuItem,
+    isInitialized,
+    orders,
+    stats,
+    updateOrderStatus,
+    assignDeliveryBoy,
+    deliveryBoys,
+    fetchDeliveryBoys,
+    updateDeliveryBoyStatus: async (id: string, status: string) => {
+      try {
+        await axios.put(
+          `http://localhost:5000/api/delivery-boy/${id}/status`,
+          { status },
+          { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
+        );
+        await fetchDeliveryBoys();
+        toast.success('Delivery boy status updated successfully');
+      } catch (error: any) {
+        console.error('Error updating delivery boy status:', error);
+        toast.error(error.response?.data?.message || 'Failed to update status');
+      }
+    }
+  };
+
   useEffect(() => {
     // Fetch initial orders and stats
     const fetchData = async () => {
@@ -311,7 +372,23 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       orders,
       stats,
       updateOrderStatus,
-      assignDeliveryBoy
+      assignDeliveryBoy,
+      deliveryBoys,
+      fetchDeliveryBoys,
+      updateDeliveryBoyStatus: async (id: string, status: string) => {
+        try {
+          await axios.put(
+            `http://localhost:5000/api/delivery-boy/${id}/status`,
+            { status },
+            { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
+          );
+          await fetchDeliveryBoys();
+          toast.success('Delivery boy status updated successfully');
+        } catch (error: any) {
+          console.error('Error updating delivery boy status:', error);
+          toast.error(error.response?.data?.message || 'Failed to update status');
+        }
+      }
     }}>
       {children}
     </AdminContext.Provider>
