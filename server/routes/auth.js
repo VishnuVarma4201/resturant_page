@@ -14,9 +14,7 @@ const { authValidation } = require('../middleware/validation');
 const { authLimiter } = require('../middleware/rateLimiter');
 
 // Register with validation
-router.post("/register", 
-    authLimiter,
-    authValidation.signup,    async (req, res) => {
+router.post("/register", authLimiter, authValidation.signup, async (req, res) => {
         try {
             const { name, email, password, phone } = req.body;
             
@@ -162,17 +160,35 @@ router.post("/send-sms-otp", async (req, res) => {
   }
 });
 
-// Validate token endpoint
-router.get("/validate", authenticateUser, (req, res) => {
-  res.json({
-    success: true,
-    user: {
-      id: req.user._id,
-      name: req.user.name,
-      email: req.user.email,
-      role: req.user.role
+// Token validation route
+router.get("/validate", authenticateUser, async (req, res) => {
+  try {
+    // req.user is already set by authenticateUser middleware
+    const user = await User.findById(req.user.id).select('-password');
+    
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid token'
+      });
     }
-  });
+
+    res.json({
+      success: true,
+      data: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role
+      }
+    });
+  } catch (err) {
+    console.error('Token validation error:', err);
+    res.status(500).json({
+      success: false,
+      message: 'Error validating token'
+    });
+  }
 });
 
 // Google OAuth login

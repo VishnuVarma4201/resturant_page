@@ -49,7 +49,9 @@ app.use(helmet({
 // Production CORS settings
 app.use(cors({
   origin: ['http://localhost:8080', 'http://localhost:5173'],
-  credentials: true
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
 // Optimize response size
@@ -74,15 +76,22 @@ app.use((err, req, res, next) => {
 });
 
 // Apply rate limiting to routes
+// Auth routes
 app.use("/api/auth", authLimiter, authRoute);
-app.use("/api/chatbot", chatbotLimiter, chatRoute);
-app.use("/api/menu", apiLimiter, menuRoute);
+
+// Core functionality routes
+app.use("/api/menu", apiLimiter, menuRoutes); // Using menuRoutes instead of menuRoute
 app.use("/api/orders", apiLimiter, orderRoute);
 app.use("/api/reservations", apiLimiter, reservationRoute);
 app.use("/api/payments", apiLimiter, paymentRoute);
+
+// User type specific routes
 app.use("/api/delivery-boy", apiLimiter, deliveryBoyRoute);
 app.use("/api/admin", apiLimiter, adminRoute);
-app.use('/api/menu', menuRoutes);
+app.use("/api/user", apiLimiter, userRoutes);
+
+// Additional services
+app.use("/api/chatbot", chatbotLimiter, chatRoute);
 app.use('/api/users', apiLimiter, userRoutes);
 
 // Root endpoint

@@ -376,15 +376,14 @@ const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
     
     toast.success("Thank you for your review!");
   };
-
   const getDeliveryBoyOrders = async (deliveryBoyId: string) => {
     try {
       const token = localStorage.getItem('token');
       if (!token) throw new Error('No authentication token found');
 
-      const response = await axios.get(`http://localhost:5000/api/orders/delivery/${deliveryBoyId}`, {
+      const response = await axios.get(`http://localhost:5000/api/delivery-boy/orders/${deliveryBoyId}`, {
         headers: {
-          Authorization: `Bearer ${token.replace('Bearer ', '').trim()}`
+          Authorization: `Bearer ${token}`
         }
       });
 

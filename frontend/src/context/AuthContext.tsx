@@ -1,233 +1,137 @@
-import { createContext, useContext, useState, useEffect } from 'react';
-import axios, { AxiosError } from 'axios';
-import { User, UserResponse, transformUser } from '@/types/user';
+import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import axios from 'axios';
+import { toast } from 'sonner';
+import type { LoginFormData } from '@/types/auth';
+
+// Create axios instance with base configuration
+const api = axios.create({
+  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:5000/api',
+  headers: {
+    'Content-Type': 'application/json'
+  },
+  withCredentials: true
+});
+
+interface AuthUser {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  token: string;
+}
 
 interface AuthContextType {
-  user: UserResponse | null;
-  users: UserResponse[];
-  login: (email: string, password: string) => Promise<AuthResponse>;
-  register: (userData: RegisterData) => Promise<AuthResponse>;
-  googleLogin: (credential: string) => Promise<AuthResponse>;
-  twitterLogin: (oauthToken: string, oauthVerifier: string) => Promise<AuthResponse>;
+  user: AuthUser | null;
+  login: (email: string, password: string, isDeliveryBoy?: boolean) => Promise<void>;
+  googleLogin: (credential: string) => Promise<void>;
   logout: () => void;
   isAuthenticated: boolean;
   isAdmin: boolean;
   isDeliveryBoy: boolean;
   loading: boolean;
-  fetchDeliveryBoys: () => Promise<{ deliveryBoys: { id: string; name: string; email: string; phone: string; }[] }>;
 }
-
-interface RegisterData {
-  name: string;
-  email: string;
-  password: string;
-  phone?: string;
-  address?: string;
-}
-
-interface AuthResponse {
-  success: boolean;
-  token: string;
-  user: UserResponse;
-}
-
-// Setup axios instance with base config
-const api = axios.create({
-  baseURL: 'http://localhost:5000/api',
-  headers: { 'Content-Type': 'application/json' }
-});
-
-// Configure axios interceptors
-api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token');
-  if (token && token !== 'null' && token !== 'undefined') {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
-  return config;
-});
-
-api.interceptors.response.use(
-  (response) => response,
-  async (error: AxiosError) => {
-    if (error.response?.status === 401) {
-      localStorage.removeItem('token');
-      // Don't redirect if we're already on the login page
-      if (!window.location.pathname.includes('/login')) {
-        window.location.href = '/login';
-      }
-    }
-    return Promise.reject(error);
-  }
-);
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
-  const [user, setUser] = useState<UserResponse | null>(null);
-  const [users, setUsers] = useState<UserResponse[]>([]);
+  const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
-  const fetchDeliveryBoys = async () => {
-    try {      const token = localStorage.getItem('token');
-      if (!token) throw new Error('No token found');      const response = await api.get('/delivery-boy');
-      const deliveryBoys = response.data || [];
-      return {
-        deliveryBoys: deliveryBoys.map((db: any) => ({
-          id: db._id,
-          name: db.name,
-          email: db.email,
-          phone: db.phone,
-          status: db.status || 'active',
-          isAvailable: db.isAvailable || false,
-          currentLocation: db.currentLocation,
-          rating: db.ratings?.average || 0,          totalDeliveries: db.performance?.totalDeliveries || 0
-        }))
-      };
-    } catch (error) {
-      console.error('Error fetching delivery boys:', error);
-      throw error;
-    }
-  };
 
-  const validateToken = async () => {
-    try {
+  // Check token validity on mount
+  useEffect(() => {
+    const validateToken = async () => {
       const token = localStorage.getItem('token');
-      
       if (!token) {
         setLoading(false);
         return;
       }
 
-      const { data } = await api.get<{ user: UserResponse }>('/auth/validate');
+      try {
+        const response = await api.get('/auth/validate', {
+          headers: { Authorization: `Bearer ${token}` }
+        });
 
-      if (data.user) {
-        setUser(transformUser(data.user));
+        if (response.data.success) {
+          const userData = response.data.data;
+          setUser({
+            ...userData,
+            token,
+            role: userData.role || 'user'
+          });
+        } else {
+          localStorage.removeItem('token');
+        }
+      } catch (error) {
+        console.error('Token validation error:', error);
+        localStorage.removeItem('token');
+      } finally {
+        setLoading(false);
       }
-    } catch (error) {
-      console.error('Token validation error:', error);
-      localStorage.removeItem('token');
-      setUser(null);
-    } finally {
-      setLoading(false);
-    }
-  };
+    };
 
-  useEffect(() => {
     validateToken();
   }, []);
 
-  useEffect(() => {
-    if (user?.role === 'admin') {
-      fetchDeliveryBoys();
-    }
-  }, [user?.role]);
-
-  const login = async (email: string, password: string): Promise<AuthResponse> => {
+  const login = async (email: string, password: string, isDeliveryBoy = false) => {
     try {
-      const { data } = await api.post<AuthResponse>('/auth/login', { 
-        email, 
-        password 
+      const endpoint = isDeliveryBoy ? '/delivery-boy/login' : '/auth/login';
+      const response = await api.post(endpoint, { email, password });
+      const { token, user: userData, deliveryBoy } = response.data;
+
+      localStorage.setItem('token', token);
+      const userInfo = isDeliveryBoy ? {
+        ...deliveryBoy,
+        role: 'delivery'
+      } : {
+        ...userData,
+        role: userData.role || 'user'
+      };
+
+      setUser({
+        ...userInfo,
+        token
       });
-
-      if (!data.success || !data.token) {
-        throw new Error('Invalid login response');
-      }
-
-      localStorage.setItem('token', data.token);
-      setUser(transformUser(data.user));
-      
-      // Update axios default header
-      api.defaults.headers.common['Authorization'] = `Bearer ${data.token}`;
-
-      return data;
     } catch (error) {
       console.error('Login error:', error);
-      localStorage.removeItem('token');
-      setUser(null);
       throw error;
     }
   };
-  const register = async (userData: RegisterData): Promise<AuthResponse> => {
+
+  const googleLogin = async (credential: string) => {
     try {
-      const { data } = await api.post<AuthResponse>('/auth/register', userData);
+      const response = await api.post('/auth/google', { credential });
+      const { token, user: userData } = response.data;
 
-      if (!data.token) {
-        throw new Error('Registration failed: No token received');
-      }
-
-      // Add success flag if not present
-      return {
-        ...data,
-        success: true
-      };
-    } catch (error: any) {
-      console.error('Registration error:', error);
-      if (error.response?.data?.message) {
-        throw new Error(error.response.data.message);
-      }
-      throw error instanceof Error ? error : new Error('Registration failed. Please try again.');
-    }
-  };
-
-  const googleLogin = async (credential: string): Promise<AuthResponse> => {
-    try {
-      setLoading(true);
-      const response = await api.post<AuthResponse>('/auth/google', { credential });
-      
-      if (response.data.token) {
-        localStorage.setItem('token', response.data.token);
-        setUser(transformUser(response.data.user));
-        return response.data;
-      }
-      throw new Error('No token received from server');
-    } catch (error: any) {
-      console.error('Google login error:', error);
-      const errorMessage = error.response?.data?.message || "Failed to authenticate with Google";
-      throw new Error(errorMessage);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const twitterLogin = async (oauthToken: string, oauthVerifier: string): Promise<AuthResponse> => {
-    try {
-      const response = await api.post<AuthResponse>('/auth/twitter/callback', {
-        oauth_token: oauthToken,
-        oauth_verifier: oauthVerifier
+      localStorage.setItem('token', token);
+      setUser({
+        ...userData,
+        token,
+        role: userData.role || 'user'
       });
-      if (response.data.token) {
-        localStorage.setItem('token', response.data.token);
-        setUser(response.data.user);
-      }
-      return response.data;
     } catch (error) {
-      console.error('Twitter login error:', error);
+      console.error('Google login error:', error);
       throw error;
     }
   };
 
-  const logout = () => {
+  const logout = useCallback(() => {
     localStorage.removeItem('token');
     setUser(null);
-    delete api.defaults.headers.common['Authorization'];
-  };
+  }, []);
 
-  const contextValue: AuthContextType = {
+  const value = {
     user,
-    users,
     login,
-    register,
+    googleLogin,
     logout,
-    loading,
     isAuthenticated: !!user,
     isAdmin: user?.role === 'admin',
     isDeliveryBoy: user?.role === 'delivery',
-    fetchDeliveryBoys,
-    googleLogin,
-    twitterLogin
+    loading
   };
 
   return (
-    <AuthContext.Provider value={contextValue}>
+    <AuthContext.Provider value={value}>
       {children}
     </AuthContext.Provider>
   );
@@ -240,3 +144,5 @@ export const useAuth = () => {
   }
   return context;
 };
+
+export default AuthContext;
