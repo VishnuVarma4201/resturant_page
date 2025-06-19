@@ -1,21 +1,26 @@
 const express = require("express");
 const router = express.Router();
-const reservationController = require("../controllers/reservationController");
+const {
+  getAllReservations,
+  getUserReservations,
+  createReservation,
+  updateReservationStatus,
+  deleteReservation,
+  cancelReservation
+} = require("../controllers/reservationController");
 const { authenticateUser, authorizeRoles } = require("../middleware/auth");
 
-// Create reservation
-router.post("/", authenticateUser, reservationController.createReservation);
+// Public routes
+router.post("/", authenticateUser, createReservation);
+router.get("/me", authenticateUser, getUserReservations);
 
-// Get user's reservations
-router.get("/me", authenticateUser, reservationController.getUserReservations);
+// User actions
+router.post("/:id/cancel", authenticateUser, cancelReservation);
 
-// Get all reservations (admin only)
-router.get("/", authenticateUser, authorizeRoles('admin'), reservationController.getAllReservations);
-
-// Update reservation status (admin only)
-router.put("/:id", authenticateUser, authorizeRoles('admin'), reservationController.updateReservationStatus);
-
-// Delete reservation (admin only)
-router.delete("/:id", authenticateUser, authorizeRoles('admin'), reservationController.deleteReservation);
+// Admin only routes
+router.get("/admin", authenticateUser, authorizeRoles('admin'), getAllReservations);
+router.get("/", authenticateUser, getAllReservations); // For backward compatibility
+router.put("/:id", authenticateUser, authorizeRoles('admin'), updateReservationStatus);
+router.delete("/:id", authenticateUser, authorizeRoles('admin'), deleteReservation);
 
 module.exports = router;

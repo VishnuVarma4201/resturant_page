@@ -1,6 +1,6 @@
 // frontend/src/types/menu.ts
 export interface MenuItem {
-  _id: string;  // MongoDB document ID
+  _id?: string;  // MongoDB document ID (optional for creation)
   id?: number;  // Optional numeric ID for backward compatibility
   name: string;
   description: string;

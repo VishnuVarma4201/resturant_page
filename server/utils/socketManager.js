@@ -18,27 +18,6 @@ const initialize = (server) => {
       origin: ["http://localhost:8080", "http://localhost:5173"],
       methods: ["GET", "POST"],
       credentials: true,
-      allowedHeaders: ["Authorization"]
-    },
-    pingTimeout: 60000,
-    pingInterval: 25000,
-    transports: ['websocket', 'polling']
-  });
-
-  // Add middleware for authentication
-  io.use(async (socket, next) => {
-    try {
-      const token = socket.handshake.auth.token;
-      if (!token) {
-        return next(new Error('Authentication token missing'));
-      }
-
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
-      socket.userId = decoded.id;
-      socket.userRole = decoded.role;
-      next();
-    } catch (error) {
-      next(new Error('Authentication failed'));
     }
   });
 
@@ -76,6 +55,19 @@ const initialize = (server) => {
       } catch (error) {
         console.error('Authentication error:', error);
         socket.emit('auth_error', { message: 'Authentication failed' });
+      }
+    });
+
+    // Handle reservation updates
+    socket.on('reservation_status_update', (data) => {
+      if (!socket.isAdmin) {
+        socket.emit('error', { message: 'Unauthorized' });
+        return;
+      }
+      
+      const userSocket = connections.users.get(data.userId);
+      if (userSocket) {
+        userSocket.emit('reservation_updated', data);
       }
     });
 
@@ -118,9 +110,55 @@ const cleanup = (socket) => {
   }
 };
 
+// Utility functions for emitting events
+const emitToUser = (userId, event, data) => {
+  const userSocket = connections.users.get(userId);
+  if (userSocket) {
+    userSocket.emit(event, data);
+  }
+};
+
+const emitToAdmin = (event, data) => {
+  connections.admins.forEach(socket => {
+    socket.emit(event, data);
+  });
+};
+
+const emitToDeliveryBoy = (deliveryBoyId, event, data) => {
+  const socket = connections.deliveryBoys.get(deliveryBoyId);
+  if (socket) {
+    socket.emit(event, data);
+  }
+};
+
+// Function to broadcast order updates
+const broadcastOrderUpdate = (orderId, update) => {
+  const room = connections.chatRooms.get(orderId);
+  if (room) {
+    room.forEach(socket => {
+      socket.emit('order_update', update);
+    });
+  }
+};
+
+// Function to broadcast reservation updates
+const broadcastReservationUpdate = (data) => {
+  // Notify admins
+  emitToAdmin('reservation_update', data);
+  
+  // Notify specific user if userId is provided
+  if (data.userId) {
+    emitToUser(data.userId, 'reservation_update', data);
+  }
+};
+
 // Export socket manager functions
 module.exports = {
   initialize,
-  getIO: () => io,
+  emitToUser,
+  emitToAdmin,
+  emitToDeliveryBoy,
+  broadcastOrderUpdate,
+  broadcastReservationUpdate,
   connections
 };

@@ -128,11 +128,11 @@ const Navbar = () => {
                 </Link>
               )}
               
-              <Link to="/profile">
+              {/* <Link to="/profile">
                 <Button variant="outline" size="sm" className="flex items-center gap-2">
                   <User size={16} /> {user?.name || 'Profile'}
                 </Button>
-              </Link>
+              </Link> */}
               
               {isAdmin && (
                 <Link to="/admin">

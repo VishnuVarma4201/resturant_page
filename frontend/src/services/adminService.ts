@@ -62,3 +62,33 @@ export const updateDeliveryBoyStatus = async (id: string, status: string) => {
     throw error.response?.data?.message || 'Failed to update delivery boy status';
   }
 };
+
+export const getReservations = async () => {
+  try {
+    const response = await api.get('/reservations/admin');
+    return response.data;
+  } catch (error: any) {
+    throw error.response?.data?.message || 'Failed to fetch reservations';
+  }
+};
+
+export const updateReservation = async (id: string, data: {
+  status?: string;
+  tableNumber?: string;
+}) => {
+  try {
+    const response = await api.patch(`/reservations/${id}`, data);
+    return response.data;
+  } catch (error: any) {
+    throw error.response?.data?.message || 'Failed to update reservation';
+  }
+};
+
+export const deleteReservation = async (id: string) => {
+  try {
+    const response = await api.delete(`/reservations/${id}`);
+    return response.data;
+  } catch (error: any) {
+    throw error.response?.data?.message || 'Failed to delete reservation';
+  }
+};

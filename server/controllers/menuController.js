@@ -29,31 +29,63 @@ const menuController = {
       console.error('Error fetching categories:', err);
       res.status(500).json({ message: 'Failed to fetch categories' });
     }
-  },
-
-  addMenuItem: async (req, res) => {
+  },  addMenuItem: async (req, res) => {
     try {
-      const { name, description, price, image, category, isVegetarian, isSpecial } = req.body;
+      let { name, description, price, image, category } = req.body;
       
-      // Validate required fields
-      if (!name || !price || !category) {
+      // Basic validation
+      if (!name?.trim() || !description?.trim() || !category?.trim() || !image?.trim()) {
         return res.status(400).json({ 
-          message: 'Name, price, and category are required',
-          required: ['name', 'price', 'category']
+          message: 'All fields are required',
+          required: ['name', 'description', 'price', 'category', 'image']
         });
       }
 
-      const newItem = new MenuItem({ 
-        name, description, price, image, category, 
-        isVegetarian: isVegetarian || false,
-        isSpecial: isSpecial || false 
+      // Parse and validate price
+      price = typeof price === 'string' ? parseFloat(price) : price;
+      if (isNaN(price) || price <= 0) {
+        return res.status(400).json({
+          message: 'Price must be a positive number'
+        });
+      }
+
+      // Validate category
+      const validCategories = ['Starters', 'Main Course', 'Desserts', 'Beverages'];
+      if (!validCategories.includes(category)) {
+        return res.status(400).json({
+          message: `Invalid category. Must be one of: ${validCategories.join(', ')}`
+        });
+      }
+
+      // Create new menu item (let MongoDB handle the _id)
+      const newItem = new MenuItem({
+        name: name.trim(),
+        description: description.trim(),
+        price: price,
+        image: image.trim(),
+        category: category.trim(),
+        available: true
       });
       
-      await newItem.save();
-      res.status(201).json(newItem);
+      // Save the new item
+      const savedItem = await newItem.save();
+      res.status(201).json(savedItem);
     } catch (err) {
       console.error('Error adding menu item:', err);
-      res.status(500).json({ message: 'Failed to add item' });
+      
+      // Handle validation errors
+      if (err.name === 'ValidationError') {
+        return res.status(400).json({
+          message: 'Validation failed',
+          errors: Object.values(err.errors).map(e => e.message)
+        });
+      }
+      
+      // Handle other errors
+      res.status(500).json({
+        message: 'Failed to add menu item',
+        error: err.message
+      });
     }
   },
 
